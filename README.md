@@ -1,5 +1,20 @@
 # ALTIV Entregas — protótipo de conferência logística
 
+## ALTIV Entregas 2.2 — importação do manifesto SPX com endereços
+
+Este recurso importa apenas arquivos exportados de forma autorizada pela operação. Um arquivo .xlsx.xls pode ser um XLSX moderno renomeado e é detectado pelos primeiros bytes ZIP. Um XLS binário antigo precisa ser convertido para XLSX.
+
+Campos reconhecidos: AT ID, SPX TN (BR), Destination Address, Bairro, City, Zipcode/Postal code, Latitude, Longitude.
+
+- A AT é identificada automaticamente; cada BR única é vinculada à rua, ao bairro e ao endereço exportados.
+- A lista de códigos é deduplicada; a mesma BR não vira segundo pacote.
+- Se a planilha contiver várias ATs, o entregador escolhe qual importar.
+- A DOE não está neste formato: entregador confirma a rota da AT. Destino correto depende de regras de ruas e bairros previamente conferidas.
+- Endereço completo e coordenadas ficam somente no armazenamento local do dispositivo e são exibidos sob demanda.
+- Não anexar planilhas reais de clientes a PRs, issues ou repositórios públicos. Os testes usam dados fictícios.
+
+Para conferir: ATs → Importar arquivo → selecione .xlsx.xls → confirme a DOE → Importar e conferir. Na aba Bipar, abra Pacotes importados e ruas.
+
 ## ALTIV Entregas 2.1 — Scanner contínuo, OCR e planilhas
 
 Mudanças preparadas para teste Android:
