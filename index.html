@@ -204,6 +204,10 @@ function upsertCorrection(state, {atId,br,destRoute,street='',neighborhood='',re
   if(!at) throw Error('AT não localizada.');
   const key=normBR(br),dest=normRoute(destRoute);
   if(!key) throw Error('BR inválida.');
+  // Nunca preparar uma correção para um pacote sem referência nesta AT e sem leitura física.
+  const isExpected=at.brs.includes(key);
+  const physicallyScanned=state.scans.some(s=>s.atId===at.id&&s.br===key);
+  if(!isExpected && !physicallyScanned) throw Error('BR não consta na AT e não foi bipada nela. Confira o pacote antes da correção.');
   if(!dest || dest===at.route) throw Error('Escolha uma rota de destino diferente da origem.');
   const existing=state.corrections.find(c=>c.atId===at.id && c.br===key);
   const data={br:key,atId,atName:at.name,originRoute:at.route,destRoute:dest,
@@ -344,7 +348,7 @@ function correctionsView(){
  const at=getAT(), requests=state.assignmentRequests||[], rows=state.corrections.slice().reverse();
  return `<section class="panel v2-compact"><h3>Corrigir rota errada</h3><p class="small muted">BR na DOE-04, mas a rua pertence à DOE-13? Registre a proposta aqui.</p>
  ${ocrDetectedRoutes.length?`<p class="small muted">Códigos impressos reconhecidos: ${h(ocrDetectedRoutes.join(", "))}. Confira manualmente a rota de destino.</p>`:""}<form id="correctionForm" class="stack"><label class="field">AT atual<select name="atId" required>${state.ats.map(a=>`<option value="${h(a.id)}" ${at?.id===a.id?'selected':''}>${h(a.name)} (${h(a.route)})</option>`).join('')}</select></label>
- <label class="field">BR do pacote<input name="br" value="${h(focusedBR)}" placeholder="BR..." required></label>
+ <label class="field">BR do pacote<input name="br" value="${h(focusedBR)}" placeholder="Bipe ou informe a BR da própria etiqueta" required></label>
  <div class="field-row"><label class="field">Origem<input name="origin" value="${h(at?.route||'')}" readonly></label><label class="field">Rota correta<select name="destRoute" required>${routeOptions(ocrSuggestedRoute)}</select></label></div>
  <div class="field-row"><label class="field">Rua (sem número)<input name="street" value="${h(ocrStreet)}" placeholder="Rua X" maxlength="110"></label><label class="field">Bairro<input name="neighborhood" value="${h(ocrNeighborhood)}" placeholder="Bairro" maxlength="90"></label></div>
  <input type="hidden" name="reason" value="Endereço pertence a outra rota (conferido pelo entregador)">
@@ -521,11 +525,11 @@ async function readLabel(){
    ocrDetectedRoutes=parsed.routes||[];
    const rule=matchAddressRule(state.rules,ocrStreet,ocrNeighborhood,getAT()?.route);
    ocrSuggestedRoute=rule?.destRoute||'';
-   const last=state.scans.filter(s=>s.atId===getAT()?.id).slice(-1)[0];
-   focusedBR=last?.br||'';
+   // O endereço fotografado pode ser de outro pacote: nunca escolher automaticamente a última BR.
+   focusedBR='';focusedExtraBR='';
    navigate('corrections');
    if(!ocrStreet)notify('Não foi possível localizar a rua. Confira a etiqueta e digite o endereço.',true);
-   else notify('Rua reconhecida: confira rua, bairro e rota antes de salvar a correção.');
+   else notify('Rua reconhecida. Informe a BR desta mesma etiqueta, confira bairro e rota antes de salvar.');
  }catch(err){notify('Falha na leitura do endereço: '+(err.message||'Tente outra foto.'),true);}
 }
 async function doDemo(){if(state.ats.length && !confirm('Adicionar duas ATs fictícias para demonstração aos seus dados atuais?'))return;
