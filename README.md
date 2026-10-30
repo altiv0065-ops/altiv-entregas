@@ -109,3 +109,13 @@ Abra **Actions > Build Android APK (teste) > execução > Artifacts**. Um artefa
 - Leitor nativo ML Kit/ZXing com testes em QR/BR reais e deduplicação pela mesma identidade.
 - Reconhecimento OCR das etiquetas e sugestões de rota condicionadas à validação.
 - Melhorias de backup, auditoria de aprovação e sincronização opcional autorizada.
+
+### Importar a planilha SPX no Android Samsung
+
+A exportacao SPX pode ter o nome `relatorio.xlsx.xls` embora o conteudo seja XLSX (ZIP/OOXML). O seletor Android pode marcar esse arquivo como indisponivel quando o campo possui filtros `accept`; por isso o ALTIV Entregas abre a lista sem filtro e detecta o tipo pelos primeiros bytes do arquivo.
+
+1. Toque em **Importar AT** e selecione o arquivo diretamente em **Documentos** ou **Downloads**, na aba **Todos**. Nao precisa renomear `.xlsx.xls`.
+2. Confira a AT identificada, as BRs unicas e os enderecos. Selecione a DOE manualmente, pois a planilha nao informa a rota de cada rua.
+3. O app aceita XLSX real (inclusive com extensao `.xlsx.xls`), CSV e TXT. Um arquivo XLS binario antigo recebe aviso explicito e deve ser exportado em XLSX.
+4. A leitura e local, sem enviar as BRs nem os enderecos para o GitHub.
+
