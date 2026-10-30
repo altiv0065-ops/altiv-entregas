@@ -94,6 +94,7 @@ body.scan-active .camera-target{pointer-events:none}
   </nav>
   <dialog id="cameraDialog" class="camera-dialog"><div class="camera-head"><strong>Leitor contínuo de BR / QR</strong><button id="closeCamera" aria-label="Fechar câmera" class="circle-btn">✕</button></div><div class="scanner-tools"><button type="button" data-action="torch">☀ Lanterna</button><button type="button" data-action="zoom">⊕ Zoom</button><button type="button" data-action="ocrLabel">▣ Ler rua</button></div><video id="cameraView" playsinline muted autoplay></video><div class="camera-target"></div><p id="cameraStatus" class="camera-status-native">Aponte para a etiqueta. BR repetida não será contabilizada.</p></dialog>
   <script src="./vendor/exceljs.min.js" defer></script>
+  <script src="./spx-manifest.js" defer></script>
   <script src="./native-scanner.js" defer></script>
   <script type="module">
 /* ALTIV Entregas — motor de conferência puro, sem dependências externas. */
@@ -171,16 +172,17 @@ function addressRows(corrections) {
   return [...byPlace.values()].map(x=>[x.street,x.neighborhood,x.from,x.to,x.brs.size,[...x.brs].join(' | '),'Solicitar avaliacao na roteirizacao oficial']);
 }
 function emptyState() {return {version:STORE_VERSION,ats:[],scans:[],corrections:[],assignmentRequests:[],rules:[],aliases:{},selectedAtId:null};}
-function importAT(state, {name,route,content,expectedCount}) {
+function importAT(state, {name,route,content,expectedCount,parcelsByBR=null,sourceFormat=''}) {
   const r = normRoute(route);
   if (!r) throw Error('Rota inválida: use DOE-03 ou DOE-04.');
   const {brs, duplicates, totalOccurrences} = extractBRs(content);
   if(!brs.length) throw Error('Nenhuma BR reconhecida. Confira o arquivo ou texto.');
+  if(state.ats.some(a=>a.name===String(name||'').trim()))throw Error('Esta AT já foi importada. Abra a existente para não duplicar pacotes.');
   const across = brs.filter(br => state.ats.some(a=>a.brs.includes(br)));
   const newAT = {id:'at-'+Date.now()+'-'+Math.random().toString(36).slice(2,7),
     name:String(name||'AT '+r).trim().slice(0,60), route:r, brs,
     declaredCount:Number.isFinite(+expectedCount) && +expectedCount>0 ? Math.floor(+expectedCount) : brs.length,
-    importedAt:new Date().toISOString()};
+    importedAt:new Date().toISOString(),parcelsByBR:parcelsByBR||{},sourceFormat};
   state.ats.push(newAT); state.selectedAtId=newAT.id;
   return {at:newAT,duplicates,across,totalOccurrences};
 }
@@ -277,7 +279,7 @@ function pdfBytes(title,lines){
 }
 
 let state=emptyState(),tab='dashboard',banner='',bannerError=false,focusedBR='',pendingRaw=null,cameraStream=null,cameraTimer=null,detector=null,processing=false;
-let selectedCorrections=new Set(),focusedExtraBR='',ocrStreet='',ocrNeighborhood='',ocrDetectedRoutes=[],ocrSuggestedRoute='';
+let selectedCorrections=new Set(),focusedExtraBR='',ocrStreet='',ocrNeighborhood='',ocrDetectedRoutes=[],ocrSuggestedRoute='',pendingSPX=null;
 const $=id=>document.getElementById(id);
 const h=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const now=()=>new Date().toLocaleString('pt-BR');
@@ -315,13 +317,13 @@ function dashboardView(){
   <p class="tiny muted">Não altera ATs oficiais. Correções e novas atribuições são solicitações para os responsáveis.</p></section></div>`;
 }
 function atsView(){
- const selected=getAT();return `<section class="panel v2-compact"><h3>Importar AT</h3><p class="small muted">Copie todas as BRs no aplicativo da Shopee e cole aqui. Não é necessário bipar para importar.</p>
+ const selected=getAT();return `<section class="panel v2-compact"><h3>Importar AT</h3><p class="small muted">Importe o relatório SPX da Shopee (.xlsx ou .xlsx.xls). O aplicativo identifica automaticamente a AT, as BRs e os endereços. Ou cole a lista manualmente.</p>
  <form id="importForm" class="stack"><div class="field-row">
  <label class="field">Identificação da AT<input name="name" placeholder="Ex.: AT manhã 04" required maxlength="60"></label>
- <label class="field">Rota<select name="route" required>${routeOptions(selected?.route||'DOE-04')}</select></label></div>
+ <label class="field">Rota DOE do entregador (confirme manualmente)<select name="route" required>${routeOptions(selected?.route||'DOE-04')}</select></label></div>
  <label class="field">Total indicado na AT<input type="number" name="expected" min="1" placeholder="Ex.: 100"></label>
  <label class="field">Cole a lista de BRs<textarea name="content" id="importText" required placeholder="BR2689439187386&#10;BR2657125532019"></textarea></label>
- <label class="field">Ou importar CSV/TXT<input id="importFile" type="file" accept=".csv,.txt,.xlsx,text/plain,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></label>
+ <label class="field">Planilha SPX da Shopee (XLSX, XLSX.XLS, CSV/TXT)<input id="importFile" type="file" accept=".csv,.txt,.xls,.xlsx,.xlsx.xls,text/plain,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></label><div id="spxPreview" class="notice hidden"></div><p class="tiny muted">A planilha informa a AT e os endereços, mas não a DOE correta. Selecione a rota deste entregador; sugestões de outras rotas dependem de regras cadastradas.</p>
  <button type="submit" class="btn green full">Importar e conferir</button></form>
  </section><div class="section-heading"><h2>Suas ATs (${state.ats.length})</h2></div><div class="stack">${state.ats.map(a=>{
  const s=summarize(a,state.scans,state.corrections);return `<div class="at-card ${a.id===selected?.id?'selected':''}"><div><h3>${h(a.name)} ${pill('neutral',a.route)}</h3><small>${s.scanned}/${a.brs.length} conferidas ${a.declaredCount!==a.brs.length?' • Quantidade divergente':''}</small></div><div class="button-row">${btn('Abrir','selectAT','secondary',`data-id="${h(a.id)}"`)}${btn('Excluir','deleteAT','ghost',`data-id="${h(a.id)}"`)}</div></div>`}).join('')||noData('Nenhuma AT importada.','▤')}</div><div class="v2-trail">${btn('Carregar AT fictícia para testar','demo','ghost')}</div>`;
@@ -342,7 +344,9 @@ function scannerView(){
  <div id="qrHelp" class="notice ${pendingRaw?'':'hidden'}"><strong>QR ainda não vinculado à BR</strong><p>Leia a BR do mesmo pacote para contar uma vez.</p><form id="bindQRForm" class="button-row"><input class="input" name="br" placeholder="BR impressa" required><button class="btn" type="submit">Vincular</button></form></div></section>
  ${extras.length?`<section class="panel"><h3>Pacotes fora da AT (${extras.length})</h3><p class="small muted">Encontrados fisicamente, mas não constam desta lista. Verifique antes de solicitar atribuição.</p>${extras.slice(0,30).map(x=>`<div class="list-row"><strong>${h(x.br)}</strong>${btn('Solicitar inclusão','requestBR','secondary',`data-br="${h(x.br)}"`)}</div>`).join('')}</section>`:''}
  <section class="panel"><h3>Últimas leituras</h3>${mine.slice(0,8).map(x=>`<div class="list-row"><div><strong>${h(x.br)}</strong><div class="tiny muted">${x.duplicateAttempts?'Repetições bloqueadas: '+x.duplicateAttempts:'Registrado uma vez'}</div></div>${pill(state.corrections.some(c=>c.atId===at.id&&c.br===x.br)?'warn':at.brs.includes(x.br)?'good':'bad',state.corrections.some(c=>c.atId===at.id&&c.br===x.br)?'Rota divergente':at.brs.includes(x.br)?'Na AT':'Fora da AT')}${btn('Corrigir','correctBR','ghost',`data-br="${h(x.br)}"`)}</div>`).join('')||noData('Nenhum pacote bipado ainda.')}
- </section><section class="panel"><h3>BRs a conferir (${s.missing.length})</h3><details><summary>Abrir lista de pendências</summary><div class="v2-pending">${s.missing.slice(0,200).map(x=>`<div class="list-row"><span>${h(x)}</span>${btn('Conferir','scanBR','ghost',`data-br="${h(x)}"`)}</div>`).join('')||'Todas as BRs importadas foram bipadas.'}</div></details></section>`;
+ </section><section class="panel"><h3>BRs a conferir (${s.missing.length})</h3><details><summary>Abrir lista de pendências</summary><div class="v2-pending">${s.missing.slice(0,200).map(x=>`<div class="list-row"><span>${h(x)}${at.parcelsByBR?.[x]?`<span class="tiny muted"> · ${h(at.parcelsByBR[x].street)} — ${h(at.parcelsByBR[x].neighborhood)}</span>`:""}</span>${btn('Conferir','scanBR','ghost',`data-br="${h(x)}"`)}</div>`).join('')||'Todas as BRs importadas foram bipadas.'}</div></details></section>
+ <section class="panel"><h3>Pacotes importados e ruas</h3><p class="small muted">Endereços completos ficam somente neste aparelho. A rota sugerida vem de regras locais, não da planilha SPX.</p>
+ <details><summary>Ver ${at.brs.length} BRs e endereços</summary><div class="v2-pending">${at.brs.map(br=>{const d=at.parcelsByBR?.[br];const rule=d?matchAddressRule(state.rules,d.street,d.neighborhood,at.route):null;return `<div class="list-row"><div><strong>${h(br)}</strong><div class="small">${d?h(d.street)+" · "+h(d.neighborhood):"Endereço não informado"}</div><div class="tiny muted">${rule?`Rota sugerida: ${h(rule.destRoute)} (revisar)`:"Sem regra de rota confirmada"}</div><details><summary>Ver endereço deste pacote</summary><div class="small">${d?h(d.address):"Não disponível"}${d?.city?", "+h(d.city):""}</div></details></div></div>`}).join("")}</div></details></section>`;
 }
 function correctionsView(){
  const at=getAT(), requests=state.assignmentRequests||[], rows=state.corrections.slice().reverse();
