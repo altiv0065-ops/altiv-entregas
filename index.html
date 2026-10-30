@@ -436,9 +436,35 @@ function scannerView(){
  <section class="panel"><h3>Pacotes importados e ruas</h3><p class="small muted">Endereços completos ficam somente neste aparelho. A rota sugerida vem de regras locais, não da planilha SPX.</p>
  <details><summary>Ver ${at.brs.length} BRs e endereços (marque para corrigir)</summary><div class="v2-pending">${at.brs.map(br=>{const d=at.parcelsByBR?.[br];const rule=d?matchAddressRule(state.rules,d.street,d.neighborhood,at.route):null;return `<div class="list-row"><label class="bulk-row"><input type="checkbox" data-bulk-br="${h(br)}" ${selectedBulkBRs.has(br)&&selectedBulkAtId===at.id?"checked":""} ${!d?.address||!d?.street||!d?.neighborhood?"disabled":""} aria-label="Selecionar BR ${h(br)} para o lote"><span><strong>${h(br)}</strong><div class="small">${d?h(d.street)+" · "+h(d.neighborhood):"Endereço não informado"}</div><div class="tiny muted">${rule?`Rota sugerida: ${h(rule.destRoute)} (revisar)`:"Sem regra de rota confirmada"}</div></span></label><details><summary>Ver endereço deste pacote</summary><div class="small">${d?h(d.address):"Não disponível"}${d?.city?", "+h(d.city):""}</div></details></div></div>`}).join("")}</div></details></section>`;
 }
+
+function bulkCorrectionPanel(at){
+ const selected=currentBulkBRs(at);
+ if(!at||!selected.length)return '';
+ const missing=new Set(summarize(at,state.scans,state.corrections).missing);
+ const pendingCount=selected.filter(br=>missing.has(br)).length;
+ const rows=selected.slice(0,20).map(br=>{
+   const d=at.parcelsByBR?.[br]||{};
+   return '<div class="list-row"><div><strong>'+h(br)+'</strong><div class="small">'+h(d.address||'')+' · '+h(d.neighborhood||'')+' · '+h(d.city||'')+' '+h(d.zip||'')+'</div></div></div>';
+ }).join('');
+ return '<section class="panel v2-compact" id="bulkFormPanel"><h3>⇄ Corrigir em massa ('+selected.length+' BRs)</h3>'+
+   '<p class="small muted">AT '+h(at.name)+' · Rota atual '+h(at.route)+' · '+pendingCount+' ainda não bipadas. A operação gera uma solicitação, não uma transferência automática.</p>'+
+   '<div class="bulk-preview">'+rows+(selected.length>20?'<p class="small muted">E mais '+(selected.length-20)+' pacotes selecionados.</p>':'')+'</div>'+
+   '<form id="bulkCorrectionForm" class="stack">'+
+   '<label class="field">Rota correta para todas as BRs<select name="destRoute" required>'+routeOptions('')+'</select></label>'+
+   '<label class="field"><span><input type="checkbox" name="verified" required> Confirmei que estas BRs pertencem à rota de destino e que os endereços importados correspondem aos pacotes.</span></label>'+
+   '<button type="submit" class="btn green full">Salvar lote e baixar CSV</button>'+
+   '<p class="tiny muted">O relatório será para revisão do responsável. A Shopee não é alterada e nenhuma BR é marcada como bipada.</p></form></section>';
+}
+function latestBatchPanel(){
+ const list=latestBulkRecords();
+ if(!list.length)return '';
+ return '<div class="notice"><strong>Último lote: '+list.length+' BRs</strong><div class="button-row">'+
+     btn('⬇ CSV deste lote','lastBulkCSV','green')+btn('▤ PDF deste lote','lastBulkPDF','secondary')+'</div></div>';
+}
+
 function correctionsView(){
  const at=getAT(), requests=state.assignmentRequests||[], rows=state.corrections.slice().reverse();
- return `<section class="panel v2-compact"><h3>Corrigir rota errada</h3><p class="small muted">BR na DOE-04, mas a rua pertence à DOE-13? Registre a proposta aqui.</p>
+ return `${bulkCorrectionPanel(at)}<section class="panel v2-compact"><h3>Corrigir rota errada</h3><p class="small muted">BR na DOE-04, mas a rua pertence à DOE-13? Registre a proposta aqui.</p>
  ${ocrDetectedRoutes.length?`<p class="small muted">Códigos impressos reconhecidos: ${h(ocrDetectedRoutes.join(", "))}. Confira manualmente a rota de destino.</p>`:""}<form id="correctionForm" class="stack"><label class="field">AT atual<select name="atId" required>${state.ats.map(a=>`<option value="${h(a.id)}" ${at?.id===a.id?'selected':''}>${h(a.name)} (${h(a.route)})</option>`).join('')}</select></label>
  <label class="field">BR do pacote<input name="br" value="${h(focusedBR)}" placeholder="Bipe ou informe a BR da própria etiqueta" required></label>
  <div class="field-row"><label class="field">Origem<input name="origin" value="${h(at?.route||'')}" readonly></label><label class="field">Rota correta<select name="destRoute" required>${routeOptions(ocrSuggestedRoute)}</select></label></div>
@@ -451,7 +477,7 @@ function correctionsView(){
  <button class="btn secondary full" type="submit">Solicitar inclusão em AT</button></form>
  ${requests.length?`<p class="small muted">${requests.length} pedido(s) de inclusão preparado(s).</p>`:''}</section>
  <section class="panel"><div class="v2-row"><h3>Planilhas prontas</h3><strong>${rows.length+requests.length}</strong></div>
- <div class="button-row">${btn('CSV conferência','summaryCSV','secondary')}${btn('CSV rotas','correctionCSV','secondary')}${btn('PDF rotas','correctionPDF','secondary')}${btn('CSV de ruas','addressCSV','ghost')}${btn('CSV inclusões','assignmentCSV','secondary')}${btn('PDF inclusões','assignmentPDF','ghost')}</div>
+ ${latestBatchPanel()}<div class="button-row">${btn('CSV conferência','summaryCSV','secondary')}${btn('CSV rotas','correctionCSV','secondary')}${btn('PDF rotas','correctionPDF','secondary')}${btn('CSV de ruas','addressCSV','ghost')}${btn('CSV inclusões','assignmentCSV','secondary')}${btn('PDF inclusões','assignmentPDF','ghost')}</div>
  <p class="small muted">Planilhas são solicitações. Não alteram automaticamente a Shopee.</p>
  <details><summary>Ver correções cadastradas (${rows.length})</summary>${rows.slice(0,100).map(c=>`<div class="list-row"><div><strong>${h(c.br)}</strong><div class="tiny muted">${h(c.street||'Rua não informada')} • ${h(c.originRoute)} → ${h(c.destRoute)}</div></div>${pill('warn',c.status)}</div>`).join('')||noData('Sem correções cadastradas.')}</details>
  <details><summary>Ver pedidos de inclusão (${requests.length})</summary>${requests.slice().reverse().slice(0,100).map(r=>`<div class="list-row"><div><strong>${h(r.br)}</strong><div class="tiny muted">Solicitar atribuição a ${h(r.destRoute)}</div></div>${pill('warn',r.status)}</div>`).join('')||noData('Sem pedidos de inclusão.')}</details>
@@ -509,10 +535,10 @@ function exportSummaryCSV(){
 function exportAuditCSV(){const rows=[];for(const a of state.ats){const s=summarize(a,state.scans,state.corrections);for(const br of s.missing)rows.push([a.name,a.route,br,'Ainda nao bipado']);for(const br of s.extras)rows.push([a.name,a.route,br,'Nao consta na AT']);for(const br of s.divergences)rows.push([a.name,a.route,br,'Correcao de rota proposta']);}
  if(!rows.length)return notify('Não há BRs pendentes, extras ou divergentes para exportar.',true);
  download('altiv-auditoria-ats.csv',exportCSV(['AT','Rota','BR','Ocorrencia'],rows),'text/csv;charset=utf-8');}
-function exportCorrectionPDF(){if(!state.corrections.length)return notify('Registre uma correção para gerar o PDF.',true);
- const lines=[];for(const c of state.corrections){lines.push(`${c.br} | ${c.originRoute} > ${c.destRoute} | ${c.status}`);lines.push(`Rua: ${c.street||'nao informada'} | Bairro: ${c.neighborhood||'nao informado'}`);lines.push(`Endereco: ${c.address||'nao disponivel'} | Cidade: ${c.city||''} | CEP: ${c.zip||''} | Lote: ${c.batchId||'individual'}`);lines.push(`Motivo: ${c.reason}`);lines.push('');}
+function exportCorrectionPDF(list=state.corrections,filename='altiv-lote-correcao.pdf'){if(!list.length)return notify('Registre uma correção para gerar o PDF.',true);
+ const lines=[];for(const c of list){lines.push(`${c.br} | ${c.originRoute} > ${c.destRoute} | ${c.status}`);lines.push(`Rua: ${c.street||'nao informada'} | Bairro: ${c.neighborhood||'nao informado'}`);lines.push(`Endereco: ${c.address||'nao disponivel'} | Cidade: ${c.city||''} | CEP: ${c.zip||''} | Lote: ${c.batchId||'individual'}`);lines.push(`Motivo: ${c.reason}`);lines.push('');}
  lines.push('Documento para conferencia e aprovacao do responsavel. Nenhuma alteracao na Shopee.');
- download('altiv-lote-correcao.pdf',pdfBytes('Solicitacoes de correcao de rotas',lines),'application/pdf');}
+ download(filename,pdfBytes('Solicitacoes de correcao de rotas',lines),'application/pdf');}
 function exportAuditPDF(){if(!state.ats.length)return notify('Importe pelo menos uma AT.',true);
  const lines=[];for(const a of state.ats){const s=summarize(a,state.scans,state.corrections);lines.push(`${a.name} - ${a.route} | BRs: ${s.expected} | Bipadas: ${s.scanned} | Nao bipadas: ${s.missing.length} | Extras: ${s.extras.length}`);
  for(const br of s.missing)lines.push(`PENDENTE: ${br}`);for(const br of s.extras)lines.push(`EXTRA: ${br}`);for(const br of s.divergences)lines.push(`CORRECAO PROPOSTA: ${br}`);lines.push('');}
@@ -632,15 +658,22 @@ async function doDemo(){if(state.ats.length && !confirm('Adicionar duas ATs fict
 async function handleAction(action,el){const at=getAT();switch(action){
  case 'goScan':navigate('scanner');break;case 'goATs':navigate('ats');break;case 'goCorrections':navigate('corrections');break;case 'goRules':navigate('rules');break;case 'goReports':navigate('reports');break;
  case 'demo':await doDemo();break;
- case 'selectAT':state.selectedAtId=el.dataset.id;await save();navigate('scanner');notify('AT selecionada. Faça a conferência.');break;
+ case 'selectAT':state.selectedAtId=el.dataset.id;selectedBulkAtId=null;selectedBulkBRs.clear();await save();navigate('scanner');notify('AT selecionada. Faça a conferência.');break;
  case 'deleteAT':{const id=el.dataset.id,obj=state.ats.find(a=>a.id===id);if(!obj||!confirm(`Excluir ${obj.name}, suas leituras e solicitações vinculadas?`))return;
- state.ats=state.ats.filter(a=>a.id!==id);state.scans=state.scans.filter(s=>s.atId!==id);state.corrections=state.corrections.filter(c=>c.atId!==id);state.assignmentRequests=state.assignmentRequests.filter(c=>c.atId!==id);state.selectedAtId=state.ats[0]?.id||null;selectedCorrections.clear();await save();render();notify('AT excluída deste dispositivo.');break;}
+ state.ats=state.ats.filter(a=>a.id!==id);state.scans=state.scans.filter(s=>s.atId!==id);state.corrections=state.corrections.filter(c=>c.atId!==id);state.assignmentRequests=state.assignmentRequests.filter(c=>c.atId!==id);state.selectedAtId=state.ats[0]?.id||null;selectedCorrections.clear();selectedBulkBRs.clear();selectedBulkAtId=null;await save();render();notify('AT excluída deste dispositivo.');break;}
  case 'openCamera':await openCamera();break;
  case 'torch':if(window.ALTIVNativeScanner){const on=await window.ALTIVNativeScanner.toggleTorch();notify(on?'Lanterna ligada.':'Lanterna desligada.');}else notify('Lanterna disponível no APK Android.',true);break;
  case 'zoom':if(window.ALTIVNativeScanner){const z=await window.ALTIVNativeScanner.zoom();notify('Zoom ajustado para '+z.toFixed(1)+'x.');}else notify('Zoom disponível no APK Android.',true);break;
  case 'ocrLabel':await readLabel();break;
  case 'scanBR':await ingestRaw(el.dataset.br);break;
  case 'correctBR':focusedBR=el.dataset.br;focusedExtraBR='';navigate('corrections');break;
+ case 'bulkAll':bulkSelect('all');break;
+ case 'bulkPending':bulkSelect('pending');break;
+ case 'bulkScanned':bulkSelect('scanned');break;
+ case 'bulkClear':bulkSelect('clear');break;
+ case 'bulkStart':{const selected=currentBulkBRs(at);if(!selected.length)throw Error('Selecione BRs com endereço SPX.');navigate('corrections');$('bulkFormPanel')?.scrollIntoView({block:'start'});break;}
+ case 'lastBulkCSV':{const list=latestBulkRecords();if(!list.length)throw Error('Nenhum lote encontrado.');exportCorrectionsCSV(list,'altiv-correcoes-lote.csv');break;}
+ case 'lastBulkPDF':{const list=latestBulkRecords();if(!list.length)throw Error('Nenhum lote encontrado.');exportCorrectionPDF(list,'altiv-correcoes-lote.pdf');break;}
  case 'requestBR':focusedExtraBR=el.dataset.br;focusedBR='';navigate('corrections');break;
  case 'deleteRule':if(!confirm('Excluir esta regra local?'))return;state.rules=state.rules.filter(r=>r.id!==el.dataset.id);await save();render();notify('Regra local removida.');break;
  case 'assignmentCSV':exportAssignmentCSV();break;case 'assignmentPDF':exportAssignmentPDF();break;case 'correctionCSV':exportCorrectionsCSV();break;case 'addressCSV':exportAddressCSV();break;case 'correctionPDF':exportCorrectionPDF();break;case 'summaryCSV':exportSummaryCSV();break;case 'auditCSV':exportAuditCSV();break;case 'auditPDF':exportAuditPDF();break;
@@ -719,17 +752,34 @@ document.addEventListener('change',async e=>{
  const file=e.target.files?.[0];if(!file)return;
  try{await readExportedATFile(file)}catch(err){pendingSPX=null;notify('Importacao: '+err.message,true);}
  }
+ if(e.target.matches('[data-bulk-br]')){
+  const at=getAT(),br=e.target.dataset.bulkBr;
+  if(!at||!eligibleBulkBRs(at).includes(br)){e.target.checked=false;return;}
+  if(selectedBulkAtId!==at.id){selectedBulkAtId=at.id;selectedBulkBRs.clear();}
+  if(e.target.checked)selectedBulkBRs.add(br);else selectedBulkBRs.delete(br);
+  updateBulkCounter();return;
+ }
  if(e.target.classList.contains('cor-check')){if(e.target.checked)selectedCorrections.add(e.target.dataset.id);else selectedCorrections.delete(e.target.dataset.id);}
  if(e.target.classList.contains('cor-status')){const c=state.corrections.find(c=>c.id===e.target.dataset.id);if(c){c.status=e.target.value;await save();render();notify('Situação local atualizada. Não modifica o sistema da Shopee.');}}
  if(e.target.name==='atId' && e.target.closest('#correctionForm')){const at=state.ats.find(a=>a.id===e.target.value);const input=$('correctionForm').elements.namedItem('origin');if(input)input.value=at?.route||'';}
 });
 document.addEventListener('input',e=>{if(e.target.id==='importText'&&pendingSPX){pendingSPX=null;const node=$('spxPreview');if(node)node.classList.add('hidden');notify('Lista editada manualmente: informe a AT e confira o total antes de importar.');}});
 document.addEventListener('submit',async e=>{e.preventDefault();const form=e.target;if(!form.id)return;const v=new FormData(form);try{
+ if(form.id==='bulkCorrectionForm'){
+  const at=getAT(),selected=currentBulkBRs(at);
+  if(!v.has('verified'))throw Error('Confirme a rota e os endereços selecionados.');
+  const result=upsertBulkRouteCorrections(state,{atId:at?.id,brs:selected,destRoute:v.get('destRoute')});
+  state.lastBulkBatchId=result.batchId;
+  await save();selectedBulkBRs.clear();selectedBulkAtId=null;
+  render();
+  exportCorrectionsCSV(result.records,'altiv-lote-'+result.destination.toLowerCase()+'.csv');
+  notify(result.count+' correções propostas para '+result.destination+'. CSV gerado para revisão do responsável.');
+ }
  if(form.id==='importForm'){
   const manifest=pendingSPX?.manifests[pendingSPX.selected];
   const parcelsByBR=manifest?Object.fromEntries(manifest.parcels.map(p=>[p.br,p])):null;
   const result=importAT(state,{name:manifest?.atId||v.get('name'),route:v.get('route'),content:manifest?manifest.parcels.map(p=>p.br).join('\n'):v.get('content'),expectedCount:manifest?.count||v.get('expected'),parcelsByBR,sourceFormat:manifest?'SPX':'manual'});
-  pendingSPX=null;await save();render();
+  pendingSPX=null;selectedBulkBRs.clear();selectedBulkAtId=null;await save();render();
   const msgs=[`${result.at.brs.length} BRs únicas importadas.`];
   if(result.duplicates.length)msgs.push(`${result.duplicates.length} BR(s) repetidas na lista foram desconsideradas.`);
   if(result.across.length)msgs.push(`${result.across.length} BR(s) também aparecem em outras ATs: revisar conflito.`);
