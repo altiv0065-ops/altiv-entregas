@@ -48,6 +48,18 @@
  .v2-three small{font-size:10px}
  .mobile-nav{justify-content:space-around}
 }
+
+/* Leitor Android ML Kit: a camera precisa aparecer por tras do WebView. */
+html.scan-active,body.scan-active{background:transparent!important}
+body.scan-active .layout,body.scan-active .mobile-nav{visibility:hidden!important}
+body.scan-active .camera-dialog{visibility:visible!important;display:block;background:transparent!important;border:0!important;box-shadow:none!important;color:#fff!important;width:100vw!important;max-width:100vw!important;height:100dvh!important;max-height:100dvh!important;padding:14px!important;position:fixed;inset:0;margin:0!important}
+body.scan-active .camera-dialog::backdrop{background:transparent!important}
+body.scan-active .camera-dialog video{display:none!important}
+body.scan-active .camera-head,body.scan-active .scanner-tools{background:rgba(4,12,24,.72);border-radius:14px;padding:12px}
+body.scan-active .camera-target{pointer-events:none}
+.camera-status-native{position:absolute;bottom:13%;left:6%;right:6%;text-align:center;color:#fff;font-weight:600;text-shadow:0 1px 4px #111}
+.scanner-tools{display:flex;gap:8px;justify-content:center;margin:12px 0;flex-wrap:wrap}
+.scanner-tools button{padding:10px 12px;border-radius:9px;border:1px solid #7791a8;background:#112a40;color:#fff;font-weight:600}
 </style><link rel="manifest" href="./manifest.webmanifest"><link rel="icon" type="image/svg+xml" href="./assets/icon.svg"><title>ALTIV Entregas — Conferência de ATs</title>
 </head>
 <body>
@@ -80,7 +92,8 @@
     <button data-tab="corrections"><span>⇄</span><small>Correções</small></button>
     
   </nav>
-  <dialog id="cameraDialog" class="camera-dialog"><div class="camera-head"><strong>Leitor de QR / código de barras</strong><button id="closeCamera" aria-label="Fechar câmera" class="circle-btn">✕</button></div><video id="cameraView" playsinline muted autoplay></video><div class="camera-target"></div><p id="cameraStatus">Aponte para o código da etiqueta. Não escaneie dados pessoais.</p></dialog>
+  <dialog id="cameraDialog" class="camera-dialog"><div class="camera-head"><strong>Leitor contínuo de BR / QR</strong><button id="closeCamera" aria-label="Fechar câmera" class="circle-btn">✕</button></div><div class="scanner-tools"><button type="button" data-action="torch">☀ Lanterna</button><button type="button" data-action="zoom">⊕ Zoom</button><button type="button" data-action="ocrLabel">▣ Ler rua</button></div><video id="cameraView" playsinline muted autoplay></video><div class="camera-target"></div><p id="cameraStatus" class="camera-status-native">Aponte para a etiqueta. BR repetida não será contabilizada.</p></dialog>
+  <script src="./vendor/exceljs.min.js" defer></script>
   <script src="./native-scanner.js" defer></script>
   <script type="module">
 /* ALTIV Entregas — motor de conferência puro, sem dependências externas. */
@@ -260,7 +273,7 @@ function pdfBytes(title,lines){
 }
 
 let state=emptyState(),tab='dashboard',banner='',bannerError=false,focusedBR='',pendingRaw=null,cameraStream=null,cameraTimer=null,detector=null,processing=false;
-let selectedCorrections=new Set(),focusedExtraBR='';
+let selectedCorrections=new Set(),focusedExtraBR='',ocrStreet='',ocrNeighborhood='',ocrDetectedRoutes=[];
 const $=id=>document.getElementById(id);
 const h=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const now=()=>new Date().toLocaleString('pt-BR');
@@ -304,7 +317,7 @@ function atsView(){
  <label class="field">Rota<select name="route" required>${routeOptions(selected?.route||'DOE-04')}</select></label></div>
  <label class="field">Total indicado na AT<input type="number" name="expected" min="1" placeholder="Ex.: 100"></label>
  <label class="field">Cole a lista de BRs<textarea name="content" id="importText" required placeholder="BR2689439187386&#10;BR2657125532019"></textarea></label>
- <label class="field">Ou importar CSV/TXT<input id="importFile" type="file" accept=".csv,.txt,text/plain,text/csv"></label>
+ <label class="field">Ou importar CSV/TXT<input id="importFile" type="file" accept=".csv,.txt,.xlsx,text/plain,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></label>
  <button type="submit" class="btn green full">Importar e conferir</button></form>
  </section><div class="section-heading"><h2>Suas ATs (${state.ats.length})</h2></div><div class="stack">${state.ats.map(a=>{
  const s=summarize(a,state.scans,state.corrections);return `<div class="at-card ${a.id===selected?.id?'selected':''}"><div><h3>${h(a.name)} ${pill('neutral',a.route)}</h3><small>${s.scanned}/${a.brs.length} conferidas ${a.declaredCount!==a.brs.length?' • Quantidade divergente':''}</small></div><div class="button-row">${btn('Abrir','selectAT','secondary',`data-id="${h(a.id)}"`)}${btn('Excluir','deleteAT','ghost',`data-id="${h(a.id)}"`)}</div></div>`}).join('')||noData('Nenhuma AT importada.','▤')}</div><div class="v2-trail">${btn('Carregar AT fictícia para testar','demo','ghost')}</div>`;
@@ -317,8 +330,8 @@ function scannerView(){
  <div class="v2-count"><strong>${s.scanned}</strong><span>/ ${at.brs.length} pacotes conferidos</span></div>
  <div class="progress"><div style="width:${at.brs.length?Math.min(100,s.scanned/at.brs.length*100):0}%"></div></div>
  <div class="v2-three"><div><strong>${s.missing.length}</strong><small>A conferir</small></div><div><strong>${s.extras.length}</strong><small>Fora da AT</small></div><div><strong>${s.duplicateAttempts}</strong><small>Repetidos</small></div></div>
- <button class="btn green full v2-camera-btn" data-action="openCamera">▣ Abrir leitor QR / BR</button>
- <p class="tiny muted" style="text-align:center">No APK, câmera nativa. QR sem BR identificável exige vínculo para evitar duplicidade.</p></section>
+ <button class="btn green full v2-camera-btn" data-action="openCamera">▣ Abrir câmera contínua</button><button class="btn secondary full" data-action="ocrLabel" style="margin-top:8px">▣ Fotografar etiqueta para ler rua</button>
+ <p class="tiny muted" style="text-align:center">No APK, bipagem contínua com câmera nativa. QR sem BR exige vínculo com a etiqueta.</p></section>
  <section class="panel v2-compact"><form id="manualScanForm" class="stack"><label class="field">Bipagem manual ou leitor Bluetooth<input id="manualCode" class="scan-input" name="code" placeholder="BR do pacote" autocomplete="off"></label>
  <details><summary>Conferir endereço (opcional)</summary><div class="field-row"><label class="field">Rua sem número<input id="streetScan" name="street" placeholder="Rua X"></label><label class="field">Bairro<input id="districtScan" name="neighborhood" placeholder="Bairro"></label></div></details>
  <button class="btn secondary full" type="submit">Conferir BR</button></form>
@@ -330,10 +343,10 @@ function scannerView(){
 function correctionsView(){
  const at=getAT(), requests=state.assignmentRequests||[], rows=state.corrections.slice().reverse();
  return `<section class="panel v2-compact"><h3>Corrigir rota errada</h3><p class="small muted">BR na DOE-04, mas a rua pertence à DOE-13? Registre a proposta aqui.</p>
- <form id="correctionForm" class="stack"><label class="field">AT atual<select name="atId" required>${state.ats.map(a=>`<option value="${h(a.id)}" ${at?.id===a.id?'selected':''}>${h(a.name)} (${h(a.route)})</option>`).join('')}</select></label>
+ ${ocrDetectedRoutes.length?`<p class="small muted">Códigos impressos reconhecidos: ${h(ocrDetectedRoutes.join(", "))}. Confira manualmente a rota de destino.</p>`:""}<form id="correctionForm" class="stack"><label class="field">AT atual<select name="atId" required>${state.ats.map(a=>`<option value="${h(a.id)}" ${at?.id===a.id?'selected':''}>${h(a.name)} (${h(a.route)})</option>`).join('')}</select></label>
  <label class="field">BR do pacote<input name="br" value="${h(focusedBR)}" placeholder="BR..." required></label>
  <div class="field-row"><label class="field">Origem<input name="origin" value="${h(at?.route||'')}" readonly></label><label class="field">Rota correta<select name="destRoute" required>${routeOptions('DOE-13')}</select></label></div>
- <div class="field-row"><label class="field">Rua (sem número)<input name="street" placeholder="Rua X" maxlength="110"></label><label class="field">Bairro<input name="neighborhood" placeholder="Bairro" maxlength="90"></label></div>
+ <div class="field-row"><label class="field">Rua (sem número)<input name="street" value="${h(ocrStreet)}" placeholder="Rua X" maxlength="110"></label><label class="field">Bairro<input name="neighborhood" value="${h(ocrNeighborhood)}" placeholder="Bairro" maxlength="90"></label></div>
  <input type="hidden" name="reason" value="Endereço pertence a outra rota (conferido pelo entregador)">
  <button type="submit" class="btn green full">Adicionar à planilha de correção</button></form></section>
  <section class="panel v2-compact"><h3>Pacotes sem correspondência nesta AT</h3><p class="small muted">Esses pacotes foram bipados, mas não aparecem na AT aberta. Monte um lote para solicitar inclusão ou criação de AT ao responsável.</p>
@@ -486,7 +499,7 @@ document.addEventListener('submit',async e=>{e.preventDefault();const form=e.tar
  await save();focusedExtraBR='';render();notify('Solicitação de inclusão preparada para '+req.destRoute+'. Exporte a planilha para o responsável.');
  }
  if(form.id==='correctionForm'){
-  const c=upsertCorrection(state,{atId:v.get('atId'),br:v.get('br'),destRoute:v.get('destRoute'),street:v.get('street'),neighborhood:v.get('neighborhood'),reason:v.get('reason')});await save();focusedBR='';render();notify(`Correção ${c.originRoute} → ${c.destRoute} registrada para ${c.br}. Aguardando aprovação.`);
+  const c=upsertCorrection(state,{atId:v.get('atId'),br:v.get('br'),destRoute:v.get('destRoute'),street:v.get('street'),neighborhood:v.get('neighborhood'),reason:v.get('reason')});await save();focusedBR='';ocrStreet='';ocrNeighborhood='';ocrDetectedRoutes=[];render();notify(`Correção ${c.originRoute} → ${c.destRoute} registrada para ${c.br}. Aguardando aprovação.`);
  }
  if(form.id==='ruleForm'){
   const from=normRoute(v.get('originRoute')),dest=normRoute(v.get('destRoute'));
