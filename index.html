@@ -273,7 +273,7 @@ function pdfBytes(title,lines){
 }
 
 let state=emptyState(),tab='dashboard',banner='',bannerError=false,focusedBR='',pendingRaw=null,cameraStream=null,cameraTimer=null,detector=null,processing=false;
-let selectedCorrections=new Set(),focusedExtraBR='',ocrStreet='',ocrNeighborhood='',ocrDetectedRoutes=[];
+let selectedCorrections=new Set(),focusedExtraBR='',ocrStreet='',ocrNeighborhood='',ocrDetectedRoutes=[],ocrSuggestedRoute='';
 const $=id=>document.getElementById(id);
 const h=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const now=()=>new Date().toLocaleString('pt-BR');
@@ -345,10 +345,10 @@ function correctionsView(){
  return `<section class="panel v2-compact"><h3>Corrigir rota errada</h3><p class="small muted">BR na DOE-04, mas a rua pertence à DOE-13? Registre a proposta aqui.</p>
  ${ocrDetectedRoutes.length?`<p class="small muted">Códigos impressos reconhecidos: ${h(ocrDetectedRoutes.join(", "))}. Confira manualmente a rota de destino.</p>`:""}<form id="correctionForm" class="stack"><label class="field">AT atual<select name="atId" required>${state.ats.map(a=>`<option value="${h(a.id)}" ${at?.id===a.id?'selected':''}>${h(a.name)} (${h(a.route)})</option>`).join('')}</select></label>
  <label class="field">BR do pacote<input name="br" value="${h(focusedBR)}" placeholder="BR..." required></label>
- <div class="field-row"><label class="field">Origem<input name="origin" value="${h(at?.route||'')}" readonly></label><label class="field">Rota correta<select name="destRoute" required>${routeOptions('DOE-13')}</select></label></div>
+ <div class="field-row"><label class="field">Origem<input name="origin" value="${h(at?.route||'')}" readonly></label><label class="field">Rota correta<select name="destRoute" required>${routeOptions(ocrSuggestedRoute)}</select></label></div>
  <div class="field-row"><label class="field">Rua (sem número)<input name="street" value="${h(ocrStreet)}" placeholder="Rua X" maxlength="110"></label><label class="field">Bairro<input name="neighborhood" value="${h(ocrNeighborhood)}" placeholder="Bairro" maxlength="90"></label></div>
  <input type="hidden" name="reason" value="Endereço pertence a outra rota (conferido pelo entregador)">
- <button type="submit" class="btn green full">Adicionar à planilha de correção</button></form></section>
+ ${ocrStreet?'<label class="field"><span><input type="checkbox" name="verifiedPhoto" required> Confirmei que a rua lida e a BR são do mesmo pacote.</span></label>':''}<button type="submit" class="btn green full">Adicionar à planilha de correção</button></form></section>
  <section class="panel v2-compact"><h3>Pacotes sem correspondência nesta AT</h3><p class="small muted">Esses pacotes foram bipados, mas não aparecem na AT aberta. Monte um lote para solicitar inclusão ou criação de AT ao responsável.</p>
  <form id="assignmentForm" class="stack"><label class="field">BR extra<input name="br" value="${h(focusedExtraBR||'')}" placeholder="BR do pacote bipado" required></label>
  <label class="field">Rota sugerida<select name="destRoute" required>${routeOptions(at?.route||'DOE-04')}</select></label><div class="field-row"><label class="field">Rua sem número<input name="street" value="${h(ocrStreet)}" maxlength="110"></label><label class="field">Bairro<input name="neighborhood" value="${h(ocrNeighborhood)}" maxlength="90"></label></div>
@@ -519,6 +519,8 @@ async function readLabel(){
    ocrStreet=parsed.street||'';
    ocrNeighborhood=parsed.neighborhood||'';
    ocrDetectedRoutes=parsed.routes||[];
+   const rule=matchAddressRule(state.rules,ocrStreet,ocrNeighborhood,getAT()?.route);
+   ocrSuggestedRoute=rule?.destRoute||'';
    const last=state.scans.filter(s=>s.atId===getAT()?.id).slice(-1)[0];
    focusedBR=last?.br||'';
    navigate('corrections');
@@ -600,7 +602,7 @@ document.addEventListener('submit',async e=>{e.preventDefault();const form=e.tar
  await save();focusedExtraBR='';render();notify('Solicitação de inclusão preparada para '+req.destRoute+'. Exporte a planilha para o responsável.');
  }
  if(form.id==='correctionForm'){
-  const c=upsertCorrection(state,{atId:v.get('atId'),br:v.get('br'),destRoute:v.get('destRoute'),street:v.get('street'),neighborhood:v.get('neighborhood'),reason:v.get('reason')});await save();focusedBR='';ocrStreet='';ocrNeighborhood='';ocrDetectedRoutes=[];render();notify(`Correção ${c.originRoute} → ${c.destRoute} registrada para ${c.br}. Aguardando aprovação.`);
+  const c=upsertCorrection(state,{atId:v.get('atId'),br:v.get('br'),destRoute:v.get('destRoute'),street:v.get('street'),neighborhood:v.get('neighborhood'),reason:v.get('reason')});await save();focusedBR='';ocrStreet='';ocrNeighborhood='';ocrDetectedRoutes=[];ocrSuggestedRoute='';render();notify(`Correção ${c.originRoute} → ${c.destRoute} registrada para ${c.br}. Aguardando aprovação.`);
  }
  if(form.id==='ruleForm'){
   const from=normRoute(v.get('originRoute')),dest=normRoute(v.get('destRoute'));
