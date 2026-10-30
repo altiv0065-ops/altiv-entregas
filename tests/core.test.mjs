@@ -76,3 +76,24 @@ test('navegação enxuta e scanner nativo fazem parte da versão 2',()=>{
    assert.ok(html.includes(label),'faltando: '+label);
  }
 });
+
+test('bloqueia correção de BR que não pertence à AT nem foi conferida fisicamente',()=>{
+ const s=api.emptyState();const at4=api.importAT(s,{name:'AT rota 04',route:'DOE-04',content:A}).at;
+ const at3=api.importAT(s,{name:'AT rota 03',route:'DOE-03',content:B}).at;
+ assert.throws(()=>api.upsertCorrection(s,{atId:at4.id,br:X,destRoute:'DOE-13',street:'Rua X',neighborhood:'Centro'}),/não consta na AT e não foi bipada/);
+ assert.throws(()=>api.upsertCorrection(s,{atId:at4.id,br:B,destRoute:'DOE-03'}),/não consta na AT/);
+ assert.equal(s.corrections.length,0);
+ // BR na lista da AT pode ter rota sugerida para revisão mesmo antes de bipar.
+ api.upsertCorrection(s,{atId:at4.id,br:A,destRoute:'DOE-13',street:'Rua X',neighborhood:'Centro'});
+ assert.equal(s.corrections.length,1);
+ // BR extra realmente bipada nesta AT também pode receber correção.
+ api.registerBR(s,at4.id,X);
+ api.upsertCorrection(s,{atId:at4.id,br:X,destRoute:'DOE-03',street:'Rua X',neighborhood:'Centro'});
+ assert.equal(s.corrections.length,2);
+ assert.equal(s.ats.find(a=>a.id===at3.id).brs[0],B);
+});
+test('OCR não associa automaticamente a foto à última BR bipada',()=>{
+ assert.ok(html.includes("focusedBR='';focusedExtraBR='';"));
+ assert.ok(html.includes("BR não consta na AT e não foi bipada nela"));
+ assert.ok(html.includes('Confirmei que a rua lida e a BR são do mesmo pacote.'));
+});
