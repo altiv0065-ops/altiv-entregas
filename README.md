@@ -119,3 +119,9 @@ A exportacao SPX pode ter o nome `relatorio.xlsx.xls` embora o conteudo seja XLS
 3. O app aceita XLSX real (inclusive com extensao `.xlsx.xls`), CSV e TXT. Um arquivo XLS binario antigo recebe aviso explicito e deve ser exportado em XLSX.
 4. A leitura e local, sem enviar as BRs nem os enderecos para o GitHub.
 
+
+## Correção de rotas em massa (proposta para revisão)
+
+No menu **Bipar**, use **Selecionar todas da AT**, **Selecionar pendentes** ou marque os pacotes individualmente em **Pacotes importados e ruas**. Toque em **Corrigir selecionadas em massa**, confira os endereços e selecione a rota de destino DOE; o app salva as solicitações em um lote e gera um CSV. O menu **Correções** permite exportar o último lote em CSV/PDF. Cada linha inclui AT, BR, rua, bairro, endereço completo, cidade e CEP conforme o manifesto SPX importado.
+
+**Regras de segurança:** apenas pacotes da AT selecionada com endereço SPX completo participam do lote; propostas de rota finalizadas não são substituídas; a operação requer confirmação explícita e não marca pacotes como bipados. A aplicação não modifica a Shopee nem a AT oficial. Antes de usar dados reais, confira individualmente as ruas, as BRs selecionadas e a rota de destino. Não envie planilhas reais ao repositório público.
