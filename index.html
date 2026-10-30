@@ -60,6 +60,17 @@ body.scan-active .camera-target{pointer-events:none}
 .camera-status-native{position:absolute;bottom:13%;left:6%;right:6%;text-align:center;color:#fff;font-weight:600;text-shadow:0 1px 4px #111}
 .scanner-tools{display:flex;gap:8px;justify-content:center;margin:12px 0;flex-wrap:wrap}
 .scanner-tools button{padding:10px 12px;border-radius:9px;border:1px solid #7791a8;background:#112a40;color:#fff;font-weight:600}
+
+.bulk-toolbar{display:flex;flex-wrap:wrap;gap:7px;margin:10px 0}
+.bulk-toolbar .btn{flex:1 1 125px;min-height:39px}
+.bulk-row{display:flex;align-items:center;gap:9px;min-width:0}
+.bulk-row input[type=checkbox]{width:20px;height:20px;accent-color:#28c89d;flex-shrink:0}
+.bulk-row label{display:flex;align-items:center;gap:8px;flex:1;min-width:0;cursor:pointer}
+.bulk-row label>span{overflow-wrap:anywhere;min-width:0}
+.bulk-count{display:flex;justify-content:space-between;align-items:center;gap:7px;margin:10px 0}
+.bulk-preview{max-height:270px;overflow-y:auto;border-radius:12px;border:1px solid var(--border);padding:5px}
+.bulk-preview .list-row{align-items:flex-start;gap:8px}
+.bulk-preview .small{overflow-wrap:anywhere}
 </style><link rel="manifest" href="./manifest.webmanifest"><link rel="icon" type="image/svg+xml" href="./assets/icon.svg"><title>ALTIV Entregas — Conferência de ATs</title>
 </head>
 <body>
@@ -171,7 +182,7 @@ function addressRows(corrections) {
   }
   return [...byPlace.values()].map(x=>[x.street,x.neighborhood,x.from,x.to,x.brs.size,[...x.brs].join(' | '),'Solicitar avaliacao na roteirizacao oficial']);
 }
-function emptyState() {return {version:STORE_VERSION,ats:[],scans:[],corrections:[],assignmentRequests:[],rules:[],aliases:{},selectedAtId:null};}
+function emptyState() {return {version:STORE_VERSION,ats:[],scans:[],corrections:[],assignmentRequests:[],rules:[],aliases:{},selectedAtId:null,lastBulkBatchId:null};}
 function importAT(state, {name,route,content,expectedCount,parcelsByBR=null,sourceFormat=''}) {
   const r = normRoute(route);
   if (!r) throw Error('Rota inválida: use DOE-03 ou DOE-04.');
@@ -323,7 +334,7 @@ function pdfBytes(title,lines){
 }
 
 let state=emptyState(),tab='dashboard',banner='',bannerError=false,focusedBR='',pendingRaw=null,cameraStream=null,cameraTimer=null,detector=null,processing=false;
-let selectedCorrections=new Set(),focusedExtraBR='',ocrStreet='',ocrNeighborhood='',ocrDetectedRoutes=[],ocrSuggestedRoute='',pendingSPX=null;
+let selectedCorrections=new Set(),selectedBulkBRs=new Set(),selectedBulkAtId=null,focusedExtraBR='',ocrStreet='',ocrNeighborhood='',ocrDetectedRoutes=[],ocrSuggestedRoute='',pendingSPX=null;
 const $=id=>document.getElementById(id);
 const h=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const now=()=>new Date().toLocaleString('pt-BR');
@@ -340,6 +351,35 @@ function render(){
  $('networkStatus').textContent=navigator.onLine?'● Dados salvos no dispositivo':'● Funcionamento offline';
  $('content').innerHTML=({dashboard:dashboardView,ats:atsView,scanner:scannerView,corrections:correctionsView,rules:rulesView,reports:reportsView})[tab]();
 }
+
+function currentBulkBRs(at=getAT()){
+ if(!at||selectedBulkAtId!==at.id)return [];
+ const known=new Set(at.brs);
+ return [...selectedBulkBRs].filter(br=>known.has(br));
+}
+function eligibleBulkBRs(at=getAT()){
+ if(!at)return [];
+ return at.brs.filter(br=>{
+   const d=at.parcelsByBR?.[br],corr=state.corrections.find(c=>c.atId===at.id&&c.br===br);
+   return !!(d?.address&&d?.street&&d?.neighborhood)&&(!corr?.status||/^Pendente/i.test(corr.status));
+ });
+}
+function updateBulkCounter(){
+ const count=currentBulkBRs().length,el=$('bulkCount');
+ if(el)el.textContent=count+' BRs selecionadas';
+ document.querySelectorAll('[data-bulk-br]').forEach(box=>{box.checked=selectedBulkBRs.has(box.dataset.bulkBr);});
+ const trigger=$('bulkStart');if(trigger)trigger.disabled=count===0;
+}
+function bulkSelect(mode,at=getAT()){
+ if(!at)return;
+ const eligible=eligibleBulkBRs(at),scanned=new Set(state.scans.filter(s=>s.atId===at.id).map(s=>s.br));
+ const next=mode==='all'?eligible:mode==='pending'?eligible.filter(br=>!scanned.has(br)):mode==='scanned'?eligible.filter(br=>scanned.has(br)):[];
+ selectedBulkAtId=at.id;selectedBulkBRs=new Set(next);
+ updateBulkCounter();
+ notify(next.length+' BRs selecionadas. Confira os endereços antes de enviar.');
+}
+function latestBulkRecords(){const id=state.lastBulkBatchId;return id?state.corrections.filter(c=>c.batchId===id):[];}
+
 function metrics(at){const s=summarize(at,state.scans,state.corrections);return `<div class="cards">
  <div class="metric"><div class="metric-top">BRs na AT <span class="metric-icon">▣</span></div><div class="metric-num">${s.expected}</div><div class="metric-note">Lista única importada</div></div>
  <div class="metric"><div class="metric-top">Bipadas <span class="metric-icon">⌗</span></div><div class="metric-num">${s.scanned}</div><div class="metric-note">Pacotes distintos</div></div>
