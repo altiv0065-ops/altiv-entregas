@@ -302,8 +302,8 @@ function dashboardView(){
   <section class="v2-hero"><div class="eyebrow">CONFERÊNCIA DE PACOTES</div><h2>${at?'AT pronta para conferência':'Comece pela sua AT'}</h2><p>${at?'Bipe os pacotes e confira a quantidade.':'Cole a lista de BRs atribuídas e inicie a bipagem.'}</p>
   <div class="v2-primary">${at?btn('▣ Bipar pacotes','goScan','green'):btn('＋ Importar AT','goATs','green')}${at?btn('Trocar AT','goATs','secondary'):''}</div></section>
   ${at?`<section class="panel v2-current"><div class="v2-row"><div><span class="tiny muted">AT SELECIONADA</span><h2>${h(at.name)}</h2></div>${pill('neutral',at.route)}</div>
-  <div class="v2-count"><strong>${s.scanned}</strong><span>de ${at.brs.length} BRs conferidas</span></div>
-  <div class="progress"><div style="width:${Math.min(100,at.brs.length?s.scanned/at.brs.length*100:0)}%"></div></div>
+  <div class="v2-count"><strong>${s.scanned-s.extras.length}</strong><span>de ${at.brs.length} BRs da AT encontradas</span></div>
+  <div class="progress"><div style="width:${Math.min(100,at.brs.length?(s.scanned-s.extras.length)/at.brs.length*100:0)}%"></div></div>
   <div class="v2-three"><div><strong>${s.missing.length}</strong><small>A conferir</small></div><div><strong>${s.extras.length}</strong><small>Fora da AT</small></div><div><strong>${s.divergences.length}</strong><small>Rota errada</small></div></div>
   <div class="notice ${ok?'':'warning'}">${ok?'✓ Todas as BRs conferidas, sem divergências registradas.':'Conferência em andamento. Pacotes fora da AT podem precisar de nova atribuição.'}</div>
   ${at.declaredCount!==at.brs.length?`<p class="error-text small">Quantidade informada: ${at.declaredCount}; lista importada: ${at.brs.length} BRs únicas. Confira antes de concluir.</p>`:''}</section>`:''}
@@ -327,8 +327,8 @@ function scannerView(){
  const mine=state.scans.filter(x=>x.atId===at.id).slice().reverse();
  const extras=mine.filter(x=>!at.brs.includes(x.br));
  return `<section class="v2-scan-head"><span class="eyebrow">BIPAGEM • ${h(at.route)}</span><h2>${h(at.name)}</h2>
- <div class="v2-count"><strong>${s.scanned}</strong><span>/ ${at.brs.length} pacotes conferidos</span></div>
- <div class="progress"><div style="width:${at.brs.length?Math.min(100,s.scanned/at.brs.length*100):0}%"></div></div>
+ <div class="v2-count"><strong>${s.scanned-s.extras.length}</strong><span>/ ${at.brs.length} BRs da AT encontradas</span></div>
+ <div class="progress"><div style="width:${at.brs.length?Math.min(100,(s.scanned-s.extras.length)/at.brs.length*100):0}%"></div></div>
  <div class="v2-three"><div><strong>${s.missing.length}</strong><small>A conferir</small></div><div><strong>${s.extras.length}</strong><small>Fora da AT</small></div><div><strong>${s.duplicateAttempts}</strong><small>Repetidos</small></div></div>
  <button class="btn green full v2-camera-btn" data-action="openCamera">▣ Abrir câmera contínua</button><button class="btn secondary full" data-action="ocrLabel" style="margin-top:8px">▣ Fotografar etiqueta para ler rua</button>
  <p class="tiny muted" style="text-align:center">No APK, bipagem contínua com câmera nativa. QR sem BR exige vínculo com a etiqueta.</p></section>
@@ -351,11 +351,11 @@ function correctionsView(){
  <button type="submit" class="btn green full">Adicionar à planilha de correção</button></form></section>
  <section class="panel v2-compact"><h3>Pacotes sem correspondência nesta AT</h3><p class="small muted">Esses pacotes foram bipados, mas não aparecem na AT aberta. Monte um lote para solicitar inclusão ou criação de AT ao responsável.</p>
  <form id="assignmentForm" class="stack"><label class="field">BR extra<input name="br" value="${h(focusedExtraBR||'')}" placeholder="BR do pacote bipado" required></label>
- <label class="field">Rota sugerida<select name="destRoute" required>${routeOptions(at?.route||'DOE-04')}</select></label><div class="field-row"><label class="field">Rua sem número<input name="street" maxlength="110"></label><label class="field">Bairro<input name="neighborhood" maxlength="90"></label></div>
+ <label class="field">Rota sugerida<select name="destRoute" required>${routeOptions(at?.route||'DOE-04')}</select></label><div class="field-row"><label class="field">Rua sem número<input name="street" value="${h(ocrStreet)}" maxlength="110"></label><label class="field">Bairro<input name="neighborhood" value="${h(ocrNeighborhood)}" maxlength="90"></label></div>
  <button class="btn secondary full" type="submit">Solicitar inclusão em AT</button></form>
  ${requests.length?`<p class="small muted">${requests.length} pedido(s) de inclusão preparado(s).</p>`:''}</section>
  <section class="panel"><div class="v2-row"><h3>Planilhas prontas</h3><strong>${rows.length+requests.length}</strong></div>
- <div class="button-row">${btn('CSV rotas','correctionCSV','secondary')}${btn('PDF rotas','correctionPDF','secondary')}${btn('CSV de ruas','addressCSV','ghost')}${btn('CSV inclusões','assignmentCSV','secondary')}${btn('PDF inclusões','assignmentPDF','ghost')}</div>
+ <div class="button-row">${btn('CSV conferência','summaryCSV','secondary')}${btn('CSV rotas','correctionCSV','secondary')}${btn('PDF rotas','correctionPDF','secondary')}${btn('CSV de ruas','addressCSV','ghost')}${btn('CSV inclusões','assignmentCSV','secondary')}${btn('PDF inclusões','assignmentPDF','ghost')}</div>
  <p class="small muted">Planilhas são solicitações. Não alteram automaticamente a Shopee.</p>
  <details><summary>Ver correções cadastradas (${rows.length})</summary>${rows.slice(0,100).map(c=>`<div class="list-row"><div><strong>${h(c.br)}</strong><div class="tiny muted">${h(c.street||'Rua não informada')} • ${h(c.originRoute)} → ${h(c.destRoute)}</div></div>${pill('warn',c.status)}</div>`).join('')||noData('Sem correções cadastradas.')}</details>
  <details><summary>Ver pedidos de inclusão (${requests.length})</summary>${requests.slice().reverse().slice(0,100).map(r=>`<div class="list-row"><div><strong>${h(r.br)}</strong><div class="tiny muted">Solicitar atribuição a ${h(r.destRoute)}</div></div>${pill('warn',r.status)}</div>`).join('')||noData('Sem pedidos de inclusão.')}</details>
@@ -398,6 +398,16 @@ function exportAssignmentPDF() {
  lines.push('Observacao: '+r.note); lines.push('');}
  lines.push('Solicitacao de atribuicao. Nao cria AT nem altera dados oficiais da Shopee.');
  download('altiv-solicitar-atribuicao.pdf',pdfBytes('Pacotes fora da AT - solicitacao de atribuicao',lines),'application/pdf');
+}
+
+
+function exportSummaryCSV(){
+ if(!state.ats.length)return notify('Importe uma AT antes de gerar o resumo.',true);
+ const rows=state.ats.map(at=>{
+   const s=summarize(at,state.scans,state.corrections);
+   return [at.name,at.route,at.declaredCount,s.expected,s.scanned-s.extras.length,s.missing.length,s.extras.length,s.divergences.length,s.duplicateAttempts,'Somente conferencia local; nao altera atribuicoes oficiais'];
+ });
+ download('altiv-resumo-conferencia.csv',exportCSV(['AT','Rota','Total informado','BRs unicas na lista','BRs da AT encontradas','Nao bipadas','Fora da AT','Divergencias rota','Leituras repetidas','Observacao'],rows),'text/csv;charset=utf-8');
 }
 
 function exportAuditCSV(){const rows=[];for(const a of state.ats){const s=summarize(a,state.scans,state.corrections);for(const br of s.missing)rows.push([a.name,a.route,br,'Ainda nao bipado']);for(const br of s.extras)rows.push([a.name,a.route,br,'Nao consta na AT']);for(const br of s.divergences)rows.push([a.name,a.route,br,'Correcao de rota proposta']);}
@@ -447,6 +457,7 @@ async function openCamera(){
      document.body.classList.add('scan-active');
      await window.ALTIVNativeScanner.start(async raw=>{
        const identifiable=findBR(raw);
+       const before=state.scans.find(x=>x.br===identifiable && x.atId===getAT()?.id);
        // QR opaco precisa ser associado a BR no mesmo pacote, sem criar registro fantasma.
        if(!identifiable) {
          const hashed=await hashAlias(raw);
@@ -458,7 +469,7 @@ async function openCamera(){
        }
        await ingestRaw(raw);
        const hint=$('cameraStatus');
-       if(hint)hint.textContent=(identifiable||'QR associado')+' • conferência registrada';
+       if(hint)hint.textContent=before?'⚠ Pacote repetido: não contabilizado':(identifiable||'QR associado')+' • leitura concluída';
      });
    }catch(err){await closeCamera();notify('Câmera Android: '+(err.message||'Falha ao abrir'),true);}
    return;
@@ -534,7 +545,7 @@ async function handleAction(action,el){const at=getAT();switch(action){
  case 'correctBR':focusedBR=el.dataset.br;focusedExtraBR='';navigate('corrections');break;
  case 'requestBR':focusedExtraBR=el.dataset.br;focusedBR='';navigate('corrections');break;
  case 'deleteRule':if(!confirm('Excluir esta regra local?'))return;state.rules=state.rules.filter(r=>r.id!==el.dataset.id);await save();render();notify('Regra local removida.');break;
- case 'assignmentCSV':exportAssignmentCSV();break;case 'assignmentPDF':exportAssignmentPDF();break;case 'correctionCSV':exportCorrectionsCSV();break;case 'addressCSV':exportAddressCSV();break;case 'correctionPDF':exportCorrectionPDF();break;case 'auditCSV':exportAuditCSV();break;case 'auditPDF':exportAuditPDF();break;
+ case 'assignmentCSV':exportAssignmentCSV();break;case 'assignmentPDF':exportAssignmentPDF();break;case 'correctionCSV':exportCorrectionsCSV();break;case 'addressCSV':exportAddressCSV();break;case 'correctionPDF':exportCorrectionPDF();break;case 'summaryCSV':exportSummaryCSV();break;case 'auditCSV':exportAuditCSV();break;case 'auditPDF':exportAuditPDF();break;
  case 'selectAll':selectedCorrections=new Set(state.corrections.map(c=>c.id));render();break;
  case 'selectedCSV':{const list=state.corrections.filter(c=>selectedCorrections.has(c.id));if(!list.length)return notify('Selecione pelo menos uma correção.',true);exportCorrectionsCSV(list,'altiv-lote-selecionado.csv');break;}
  }}
