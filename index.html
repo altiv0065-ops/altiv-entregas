@@ -320,7 +320,7 @@ function atsView(){
  const selected=getAT();return `<section class="panel v2-compact"><h3>Importar AT</h3><p class="small muted">Importe o relatório SPX da Shopee (.xlsx ou .xlsx.xls). O aplicativo identifica automaticamente a AT, as BRs e os endereços. Ou cole a lista manualmente.</p>
  <form id="importForm" class="stack"><div class="field-row">
  <label class="field">Identificação da AT<input name="name" placeholder="Ex.: AT manhã 04" required maxlength="60"></label>
- <label class="field">Rota DOE do entregador (confirme manualmente)<select name="route" required>${routeOptions(selected?.route||'DOE-04')}</select></label></div>
+ <label class="field">Rota DOE do entregador (confirme manualmente)<select name="route" required>${routeOptions(selected?.route||'')}</select></label></div>
  <label class="field">Total indicado na AT<input type="number" name="expected" min="1" placeholder="Ex.: 100"></label>
  <label class="field">Cole a lista de BRs<textarea name="content" id="importText" required placeholder="BR2689439187386&#10;BR2657125532019"></textarea></label>
  <label class="field">Planilha SPX da Shopee (XLSX, XLSX.XLS, CSV/TXT)<input id="importFile" type="file" accept=".csv,.txt,.xls,.xlsx,.xlsx.xls,text/plain,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></label><div id="spxPreview" class="notice hidden"></div><p class="tiny muted">A planilha informa a AT e os endereços, mas não a DOE correta. Selecione a rota deste entregador; sugestões de outras rotas dependem de regras cadastradas.</p>
@@ -634,6 +634,7 @@ document.addEventListener('change',async e=>{
  if(e.target.classList.contains('cor-status')){const c=state.corrections.find(c=>c.id===e.target.dataset.id);if(c){c.status=e.target.value;await save();render();notify('Situação local atualizada. Não modifica o sistema da Shopee.');}}
  if(e.target.name==='atId' && e.target.closest('#correctionForm')){const at=state.ats.find(a=>a.id===e.target.value);const input=$('correctionForm').elements.namedItem('origin');if(input)input.value=at?.route||'';}
 });
+document.addEventListener('input',e=>{if(e.target.id==='importText'&&pendingSPX){pendingSPX=null;const node=$('spxPreview');if(node)node.classList.add('hidden');notify('Lista editada manualmente: informe a AT e confira o total antes de importar.');}});
 document.addEventListener('submit',async e=>{e.preventDefault();const form=e.target;if(!form.id)return;const v=new FormData(form);try{
  if(form.id==='importForm'){
   const manifest=pendingSPX?.manifests[pendingSPX.selected];
