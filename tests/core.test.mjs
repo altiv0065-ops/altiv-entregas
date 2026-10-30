@@ -7,7 +7,7 @@ const start=html.indexOf('const STORE_VERSION = 1;');
 const end=html.indexOf('/* PDF A4 minimalista', start);
 assert.ok(start>0&&end>start,'Motor de conferência embutido na página');
 const source=html.slice(start,end);
-const api=vm.runInNewContext('(function(){'+source+'; return {normBR,findBR,extractBRs,normRoute,emptyState,importAT,registerBR,upsertCorrection,summarize,matchAddressRule,exportCSV,addressRows};})()', {});
+const api=vm.runInNewContext('(function(){'+source+'; return {normBR,findBR,extractBRs,normRoute,emptyState,importAT,registerBR,upsertCorrection,summarize,matchAddressRule,exportCSV,addressRows,upsertAssignmentRequest};})()', {});
 const A='BR2689439187386',B='BR2657125532019',C='BR1234567890001',X='BR1234567890002';
 test('AT importa BRs sem contagem duplicada',()=>{
  const imported=api.extractBRs(A+'\n'+A+'\n'+B);
@@ -52,4 +52,48 @@ test('CSV impede fórmula executável',()=>{
 });
 test('página contém a interface e os campos operacionais',()=>{
  for(const x of ['Bipar pacotes','Correções','Regras de ruas','Relatórios','./manifest.webmanifest'])assert.ok(html.includes(x));
+});
+
+test('pacote extra precisa ser bipado antes de solicitar inclusão em AT',()=>{
+ const s=api.emptyState(),at=api.importAT(s,{name:'AT04',route:'DOE-04',content:A}).at;
+ assert.throws(()=>api.upsertAssignmentRequest(s,{atId:at.id,br:X,destRoute:'DOE-04'}),/Bipe/);
+ api.registerBR(s,at.id,X);
+ const r=api.upsertAssignmentRequest(s,{atId:at.id,br:X,destRoute:'DOE-04',street:'Rua X',neighborhood:'Centro'});
+ assert.equal(r.destRoute,'DOE-04');
+ assert.equal(s.ats[0].brs.length,1);
+ assert.equal(s.assignmentRequests.length,1);
+ api.upsertAssignmentRequest(s,{atId:at.id,br:X,destRoute:'DOE-13'});
+ assert.equal(s.assignmentRequests.length,1);
+ assert.equal(s.assignmentRequests[0].destRoute,'DOE-13');
+ assert.throws(()=>api.upsertAssignmentRequest(s,{atId:at.id,br:A,destRoute:'DOE-03'}),/consta na AT/);
+});
+test('DOE-13 é rota válida sem limitar o cadastro às 12 primeiras rotas',()=>{
+ assert.equal(api.normRoute('2-13'),'DOE-13');
+ assert.ok(html.includes('length:99'));
+});
+test('navegação enxuta e scanner nativo fazem parte da versão 2',()=>{
+ for(const label of ['Comece pela sua AT','Pacotes fora da AT','Solicitar inclusão em AT','window.ALTIVNativeScanner.start','altiv-solicitar-atribuicao.csv']){
+   assert.ok(html.includes(label),'faltando: '+label);
+ }
+});
+
+test('bloqueia correção de BR que não pertence à AT nem foi conferida fisicamente',()=>{
+ const s=api.emptyState();const at4=api.importAT(s,{name:'AT rota 04',route:'DOE-04',content:A}).at;
+ const at3=api.importAT(s,{name:'AT rota 03',route:'DOE-03',content:B}).at;
+ assert.throws(()=>api.upsertCorrection(s,{atId:at4.id,br:X,destRoute:'DOE-13',street:'Rua X',neighborhood:'Centro'}),/não consta na AT e não foi bipada/);
+ assert.throws(()=>api.upsertCorrection(s,{atId:at4.id,br:B,destRoute:'DOE-03'}),/não consta na AT/);
+ assert.equal(s.corrections.length,0);
+ // BR na lista da AT pode ter rota sugerida para revisão mesmo antes de bipar.
+ api.upsertCorrection(s,{atId:at4.id,br:A,destRoute:'DOE-13',street:'Rua X',neighborhood:'Centro'});
+ assert.equal(s.corrections.length,1);
+ // BR extra realmente bipada nesta AT também pode receber correção.
+ api.registerBR(s,at4.id,X);
+ api.upsertCorrection(s,{atId:at4.id,br:X,destRoute:'DOE-03',street:'Rua X',neighborhood:'Centro'});
+ assert.equal(s.corrections.length,2);
+ assert.equal(s.ats.find(a=>a.id===at3.id).brs[0],B);
+});
+test('OCR não associa automaticamente a foto à última BR bipada',()=>{
+ assert.ok(html.includes("focusedBR='';focusedExtraBR='';"));
+ assert.ok(html.includes("BR não consta na AT e não foi bipada nela"));
+ assert.ok(html.includes('Confirmei que a rua lida e a BR são do mesmo pacote.'));
 });

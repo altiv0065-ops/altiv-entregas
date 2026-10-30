@@ -1,5 +1,48 @@
 # ALTIV Entregas — protótipo de conferência logística
 
+## ALTIV Entregas 2.1 — Scanner contínuo, OCR e planilhas
+
+Mudanças preparadas para teste Android:
+- **Bipagem contínua** via `BarcodeScanner.startScan()` com lanterna, zoom, permissão de câmera e encerramento seguro da sessão. QR e código de barras vinculados à mesma BR são contados uma só vez.
+- **Leitura local de etiqueta** usando câmera e ML Kit OCR Latin, com extração de rua, bairro e candidatos DOE, sem guardar imagem, texto bruto, nome ou telefone; rota precisa de confirmação do entregador.
+- **Importação de AT** por lista colada, TXT, CSV ou XLSX com ExcelJS embarcado offline. O identificador isolado da AT não permite consultar os pacotes na Shopee.
+- **Relatórios** de resumo por AT, BRs faltantes, extras, propostas DOE-04 → DOE-13, ruas recorrentes e solicitações de inclusão em CSV e PDF.
+- A contagem de BRs da AT **não inclui pacotes extras**. Quantidade declarada, quantidade única importada e pacotes efetivamente conferidos são separados.
+
+### Como testar no APK
+1. Na aba **ATs**, importe BRs exportadas da operação. Verifique se as duplicadas são sinalizadas.
+2. Na aba **Bipar**, mantenha a câmera aberta e passe vários pacotes: cada BR entra uma vez. QR opaco sem BR pede vínculo, não cria pacote fantasma.
+3. Em **Fotografar etiqueta para ler rua**, confirme rua, bairro e rota sugerida manualmente antes de gravar a correção.
+4. Em **Correções**, separe as BRs DOE-04 → DOE-13; gere CSV/PDF, e gere lote separado para BR física não presente na lista.
+5. Verifique os resumos e PDFs com dados fictícios antes de utilizar dados reais.
+
+**Limitações:** scanner contínuo e OCR nativo exigem teste em Android físico. Não existe integração oficial Shopee no app; somente o responsável autorizado pode mudar uma AT ou a roteirização futura. As fotos de etiquetas podem conter dados pessoais e devem ser usadas com cuidado.
+
+
+## Versão 2.0 (branch `feat/altiv-entregas-v2-fluxo-leitor`)
+
+Fluxo principal: **importar AT → bipar pacote → conferir → exportar correções**. As quatro áreas do menu são Início, ATs, Bipar e Correções. A entrada de rua e bairro é manual ou baseada em regras previamente cadastradas: **OCR automático do endereço ainda não está incluído**, e um QR não contém necessariamente rua ou bairro.
+
+### Scanner Android e preparação inicial
+- No APK Android, usar `@capacitor-mlkit/barcode-scanning` (8.x) com Code 128, Code 39, ITF e QR Code; abre a interface nativa do Google Barcode Scanner.
+- O leitor nativo depende de Google Play Services. A primeira utilização pode precisar de internet para baixar o módulo de scanner; se aparecer "Preparando o leitor nativo", aguarde a instalação e tente novamente.
+- A interface nativa escaneia **um código por abertura**; volte a tocar em "Abrir leitor QR / BR" para o próximo pacote. A câmera contínua do navegador só é usada onde houver `BarcodeDetector` e `getUserMedia`.
+- QR contendo BR pode ser reconciliado diretamente. QR opaco exige vínculo com a BR impressa no **mesmo pacote** antes de contabilizar, para não duplicar.
+
+### Solicitações de ajuste
+- BR registrada na AT mas endereço conferido em outra DOE: registrar proposta de correção, como DOE-04 → DOE-13; exportar CSV/PDF e resumo por rua/bairro.
+- BR física não presente na AT importada: bipar, registrar um **pedido de inclusão na AT** ou de criação de nova AT oficial; exportar CSV/PDF separado. O app não sabe se está em outra AT não importada.
+- A mudança oficial depende dos responsáveis da operação; o aplicativo não cria ATs nem modifica registros da Shopee.
+
+### Testes antes de uso
+- Conferir lista completa de 100 BRs e contagem declarada.
+- Bipar QR e barras do mesmo pacote (deve contar uma vez).
+- Pacote extra e pedido de inclusão, incluindo DOE-13.
+- Exportar e revisar CSV/PDF sem dados pessoais.
+- Verificar o leitor nativo no modelo real de Android, especialmente após instalação do módulo.
+- Não substituir o aplicativo oficial da Shopee.
+
+
 Aplicativo independente para entregadores que **possuem autorização para acessar e exportar a lista de BRs de suas ATs**. Não é um aplicativo oficial da Shopee.
 
 ## Funcionalidades da Fase 1
