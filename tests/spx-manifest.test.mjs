@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {parseSPXRows,parseDelimited} from '../src/spx-manifest.mjs';
+import {parseSPXRows,parseDelimited,detectSPXFileKind} from '../src/spx-manifest.mjs';
 const head=['AT ID','Sequence','Stop','SPX TN','Destination Address','Bairro','City','Zipcode/Postal code','Latitude','Longitude'];
 const rows=[head,
  ['AT20261030EXEMPLO','-','-','BR000000000001A','Rua Exemplo, 100','Centro','Cidade X','00000-000',-15,-58],
@@ -37,10 +37,30 @@ test('UI recognizes XLSX.XLS ZIP exports and shows BR addresses',()=>{
  assert.ok(html.includes('Planilha SPX'));
  assert.ok(html.includes('spx-manifest.js'));
  assert.ok(html.includes('file.name'));
- assert.ok(html.includes('bytes[0]!==80||bytes[1]!==75'));
+ assert.ok(html.includes('detectSPXFileKind(file.name,file.type'));
  assert.ok(html.includes('Pacotes importados e ruas'));
  assert.ok(html.includes("routeOptions(selected?.route||'')"));
  const main=html.match(/<script type="module">([\s\S]*?)<\/script>/);
  assert.ok(main);
  assert.doesNotThrow(()=>new Function('return (async function(){'+main[1]+'})'));
+});
+
+test('Android SPX XLSX.XLS export is accepted by ZIP signature even with XLS extension',()=>{
+ const zip=[0x50,0x4b,0x03,0x04,0x14,0x00,0x00,0x00];
+ assert.equal(detectSPXFileKind('relatorio-SPX.xlsx.xls','application/vnd.ms-excel',zip),'xlsx');
+ assert.equal(detectSPXFileKind('relatorio-SPX.xlsx','application/octet-stream',zip),'xlsx');
+ assert.equal(detectSPXFileKind('arquivo-sem-extensao','',zip),'xlsx');
+});
+test('old binary XLS is rejected with clear message, not silently parsed as XLSX',()=>{
+ assert.throws(()=>detectSPXFileKind('relatorio.xls','application/vnd.ms-excel',[208,207,17,224,161,177,26,225]),/XLS antigo/);
+});
+test('CSV and TXT stay supported independently of Android MIME',()=>{
+ assert.equal(detectSPXFileKind('SPX.csv','application/octet-stream',[65,84,32,73,68]),'text');
+ assert.equal(detectSPXFileKind('SPX.TXT','text/plain',[65,84,32,73,68]),'text');
+});
+test('file picker must not filter Samsung Android documents by MIME/extension',()=>{
+ const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
+ assert.match(html,/<input id="importFile" type="file" aria-describedby="spxFileHelp">/);
+ assert.doesNotMatch(html,/<input id="importFile"[^>]*\baccept=/);
+ assert.ok(html.includes('detectSPXFileKind(file.name,file.type'));
 });

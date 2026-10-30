@@ -323,7 +323,7 @@ function atsView(){
  <label class="field">Rota DOE do entregador (confirme manualmente)<select name="route" required>${routeOptions(selected?.route||'')}</select></label></div>
  <label class="field">Total indicado na AT<input type="number" name="expected" min="1" placeholder="Ex.: 100"></label>
  <label class="field">Cole a lista de BRs<textarea name="content" id="importText" required placeholder="BR2689439187386&#10;BR2657125532019"></textarea></label>
- <label class="field">Planilha SPX da Shopee (XLSX, XLSX.XLS, CSV/TXT)<input id="importFile" type="file" accept=".csv,.txt,.xls,.xlsx,.xlsx.xls,text/plain,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></label><div id="spxPreview" class="notice hidden"></div><p class="tiny muted">A planilha informa a AT e os endereços, mas não a DOE correta. Selecione a rota deste entregador; sugestões de outras rotas dependem de regras cadastradas.</p>
+ <label class="field">Planilha SPX da Shopee (XLSX.XLS, XLSX, CSV/TXT)<input id="importFile" type="file" aria-describedby="spxFileHelp"><small id="spxFileHelp" class="tiny muted">No Android, abra Documentos ou Downloads e selecione a planilha normalmente. Não precisa renomear arquivos .xlsx.xls.</small></label><div id="spxPreview" class="notice hidden"></div><p class="tiny muted">A planilha informa a AT e os endereços, mas não a DOE correta. Selecione a rota deste entregador; sugestões de outras rotas dependem de regras cadastradas.</p>
  <button type="submit" class="btn green full">Importar e conferir</button></form>
  </section><div class="section-heading"><h2>Suas ATs (${state.ats.length})</h2></div><div class="stack">${state.ats.map(a=>{
  const s=summarize(a,state.scans,state.corrections);return `<div class="at-card ${a.id===selected?.id?'selected':''}"><div><h3>${h(a.name)} ${pill('neutral',a.route)}</h3><small>${s.scanned}/${a.brs.length} conferidas ${a.declaredCount!==a.brs.length?' • Quantidade divergente':''}</small></div><div class="button-row">${btn('Abrir','selectAT','secondary',`data-id="${h(a.id)}"`)}${btn('Excluir','deleteAT','ghost',`data-id="${h(a.id)}"`)}</div></div>`}).join('')||noData('Nenhuma AT importada.','▤')}</div><div class="v2-trail">${btn('Carregar AT fictícia para testar','demo','ghost')}</div>`;
@@ -585,11 +585,12 @@ async function readExportedATFile(file) {
  if(file.size>10*1024*1024)throw Error('Arquivo muito grande: maximo 10 MB.');
  pendingSPX=null;
  let rows=null, plain='';
- if(/\.(?:xlsx|xls)$/i.test(file.name)) {
-   const buffer=await file.arrayBuffer();
-   const bytes=new Uint8Array(buffer.slice(0,4));
-   if(bytes[0]!==80||bytes[1]!==75)throw Error('Arquivo XLS antigo nao suportado. Exporte como XLSX. Arquivos XLSX.XLS da Shopee sao aceitos.');
-   if(!window.ExcelJS)throw Error('Leitor Excel nao carregado neste dispositivo.');
+ if(!window.ALTIVSPX?.detectSPXFileKind)throw Error('Interpretador SPX não carregado. Feche e reabra o aplicativo.');
+ const buffer=await file.arrayBuffer();
+ if(!buffer.byteLength)throw Error('Arquivo vazio. Baixe novamente a planilha da SPX.');
+ const kind=window.ALTIVSPX.detectSPXFileKind(file.name,file.type,new Uint8Array(buffer,0,Math.min(8,buffer.byteLength)));
+ if(kind==='xlsx') {
+   if(!window.ExcelJS)throw Error('Leitor Excel não carregado. Feche e reabra o aplicativo.');
    const workbook=new window.ExcelJS.Workbook();
    await workbook.xlsx.load(buffer);
    const ws=workbook.worksheets[0];
@@ -604,10 +605,10 @@ async function readExportedATFile(file) {
      }
      rows.push(cols);
    });
- } else if(/\.(?:csv|txt)$/i.test(file.name)) {
-   plain=await file.text();
+ } else {
+   plain=new TextDecoder('utf-8').decode(buffer);
    rows=window.ALTIVSPX.parseDelimited(plain);
- } else throw Error('Formato nao suportado. Use XLSX, XLSX.XLS, CSV ou TXT.');
+ }
  const header=rows?.[0]||[];
  const spxHeader=header.some(x=>String(x).trim().toUpperCase()==='AT ID') && header.some(x=>String(x).trim().toUpperCase()==='SPX TN');
  if(spxHeader) {
