@@ -72,7 +72,7 @@ test('DOE-13 é rota válida sem limitar o cadastro às 12 primeiras rotas',()=>
  assert.ok(html.includes('length:99'));
 });
 test('navegação enxuta e scanner nativo fazem parte da versão 2',()=>{
- for(const label of ['Comece pela sua AT','Pacotes fora da AT','Solicitar inclusão em AT','scanOnce()','altiv-solicitar-atribuicao.csv']){
+ for(const label of ['Comece pela sua AT','Pacotes fora da AT','Solicitar inclusão em AT','window.ALTIVNativeScanner.start','altiv-solicitar-atribuicao.csv']){
    assert.ok(html.includes(label),'faltando: '+label);
  }
 });
