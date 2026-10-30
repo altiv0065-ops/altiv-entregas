@@ -77,3 +77,28 @@ export function parseDelimited(text){
  row.push(field);if(row.some(x=>x.trim()))rows.push(row);
  return rows;
 }
+
+// O seletor de arquivos do Android pode rotular um ZIP XLSX valido como "XLS".
+// A extensao e o MIME type nao sao confiaveis no Android SAF: usar assinatura real.
+export function detectSPXFileKind(filename='',mime='',signature=[]) {
+ const bytes=Array.from(signature||[]);
+ const zip=bytes[0]===0x50&&bytes[1]===0x4b&&
+   ((bytes[2]===0x03&&bytes[3]===0x04)||
+    (bytes[2]===0x05&&bytes[3]===0x06)||
+    (bytes[2]===0x07&&bytes[3]===0x08));
+ if(zip)return 'xlsx';
+ const legacyExcel=[0xd0,0xcf,0x11,0xe0,0xa1,0xb1,0x1a,0xe1]
+   .every((n,i)=>bytes[i]===n);
+ if(legacyExcel)throw Error('Excel XLS antigo detectado. Exporte como XLSX na SPX; XLSX.XLS funciona sem renomear.');
+ const name=String(filename||'').trim();
+ const media=String(mime||'').toLowerCase();
+ if(/\.(?:xlsx|xls)(?:\.xls)?$/i.test(name)||
+    /spreadsheetml|ms-excel|excel/.test(media)) {
+   throw Error('Este arquivo tem nome Excel, mas nao contem uma planilha XLSX valida. Baixe novamente a exportacao da SPX.');
+ }
+ if(/\.(?:csv|txt)$/i.test(name)||/^text\//.test(media)||media.includes('csv'))return 'text';
+ // Alguns provedores Android nao fornecem nem extensao nem MIME.
+ // Aceitar arquivo texto somente se a assinatura for textual legivel.
+ if(bytes.length>0&&bytes.every(n=>n===9||n===10||n===13||(n>=32&&n<127)))return 'text';
+ throw Error('Arquivo nao reconhecido. Selecione o relatorio SPX XLSX.XLS, XLSX, CSV ou TXT.');
+}
