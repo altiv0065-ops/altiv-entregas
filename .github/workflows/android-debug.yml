@@ -31,6 +31,8 @@ jobs:
           npm run build
       - name: Create Android project
         run: npx cap add android
+      - name: Apply Android camera permissions
+        run: node scripts/patch-android.mjs
       - name: Sync web assets
         run: npx cap sync android
       - name: Compile debug APK
