@@ -437,22 +437,84 @@ async function handleBind(br){if(!pendingRaw)return notify('Nenhum QR pendente.'
  const raw=pendingRaw;const hash=await hashAlias(raw);if(hash)state.aliases[hash]=key;
  pendingRaw=null;await save();await ingestRaw(key);
  if(!hash)notify('QR vinculado para esta leitura. O navegador não permite salvar associações de forma segura neste contexto.');}
-async function openCamera(){if(!getAT())return notify('Importe uma AT primeiro.',true);
- if(window.ALTIVNativeScanner){
-   try{const raw=await window.ALTIVNativeScanner.scanOnce();if(raw)await ingestRaw(raw);else notify('Nenhum código foi lido. Tente novamente.');}
-   catch(err){notify('Leitor Android: '+(err.message||'Não foi possível escanear.'),true);}
+async function openCamera(){
+ if(!getAT())return notify('Importe uma AT primeiro.',true);
+ if(window.ALTIVNativeScanner) {
+   const dlg=$('cameraDialog');
+   try {
+     dlg.showModal();
+     document.documentElement.classList.add('scan-active');
+     document.body.classList.add('scan-active');
+     await window.ALTIVNativeScanner.start(async raw=>{
+       const identifiable=findBR(raw);
+       // QR opaco precisa ser associado a BR no mesmo pacote, sem criar registro fantasma.
+       if(!identifiable) {
+         const hashed=await hashAlias(raw);
+         if(!hashed || !state.aliases[hashed]) {
+           await closeCamera();
+           await ingestRaw(raw);
+           return;
+         }
+       }
+       await ingestRaw(raw);
+       const hint=$('cameraStatus');
+       if(hint)hint.textContent=(identifiable||'QR associado')+' • conferência registrada';
+     });
+   }catch(err){await closeCamera();notify('Câmera Android: '+(err.message||'Falha ao abrir'),true);}
    return;
  }
- if(!navigator.mediaDevices?.getUserMedia) return notify('A câmera exige HTTPS ou localhost. Use um servidor seguro ou digite a BR.',true);
- if(!('BarcodeDetector' in window))return notify('Leitura por câmera não disponível neste navegador. Use Chrome Android atualizado ou leitor Bluetooth/entrada manual.',true);
+ if(!navigator.mediaDevices?.getUserMedia)return notify('A câmera no navegador exige HTTPS. Use o APK Android ou entrada manual.',true);
+ if(!('BarcodeDetector' in window))return notify('Leitor do navegador indisponível. Use o APK Android.',true);
  try{
-  const supported=await BarcodeDetector.getSupportedFormats();const formats=['code_128','qr_code','code_39','ean_13','itf'].filter(x=>supported.includes(x));
-  if(!formats.length)return notify('Formatos de etiqueta não suportados. Use leitura manual.',true);
-  detector=new BarcodeDetector({formats});cameraStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false});
-  const dlg=$('cameraDialog'),video=$('cameraView');video.srcObject=cameraStream;dlg.showModal();await video.play();let last='',lastTime=0;
-  cameraTimer=setInterval(async()=>{if(processing||!video.videoWidth||dlg.open===false)return;processing=true;try{const codes=await detector.detect(video);if(codes?.length){const raw=codes[0].rawValue||'';if(raw && (raw!==last||Date.now()-lastTime>2200)){last=raw;lastTime=Date.now();const hint=$('cameraStatus');hint.textContent='Lido: '+(findBR(raw)||'QR sem BR - vincular manualmente');await ingestRaw(raw);}}}catch(err){console.warn('Leitor:',err)}finally{processing=false}},360);
- }catch(e){closeCamera();notify('Não foi possível abrir a câmera: '+e.message,true);}}
-function closeCamera(){if(cameraTimer){clearInterval(cameraTimer);cameraTimer=null;}if(cameraStream){cameraStream.getTracks().forEach(t=>t.stop());cameraStream=null;}if($('cameraDialog').open)$('cameraDialog').close();}
+   const supported=await BarcodeDetector.getSupportedFormats();
+   const formats=['code_128','qr_code','code_39','ean_13','itf'].filter(x=>supported.includes(x));
+   if(!formats.length)throw Error('Nenhum formato de código suportado.');
+   detector=new BarcodeDetector({formats});
+   cameraStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false});
+   const dlg=$('cameraDialog'),video=$('cameraView');video.srcObject=cameraStream;dlg.showModal();await video.play();
+   let last='',lastTime=0;
+   cameraTimer=setInterval(async()=>{
+      if(processing||!video.videoWidth||!dlg.open)return;
+      processing=true;
+      try{
+        const codes=await detector.detect(video);
+        if(codes?.length){
+          const raw=codes[0].rawValue||'';
+          if(raw&&(raw!==last||Date.now()-lastTime>4500)){
+             last=raw;lastTime=Date.now();
+             if(!findBR(raw)){const hash=await hashAlias(raw);if(!hash||!state.aliases[hash])await closeCamera();}
+             await ingestRaw(raw);
+             const hint=$('cameraStatus');if(hint)hint.textContent='Lido: '+(findBR(raw)||'QR associado');
+          }
+        }
+      }catch(err){console.warn('Erro do leitor, não foi feita nova contagem.');}
+      finally{processing=false}
+   },450);
+ }catch(err){await closeCamera();notify('Não foi possível abrir a câmera: '+(err.message||'erro'),true);}
+}
+async function closeCamera(){
+ if(cameraTimer){clearInterval(cameraTimer);cameraTimer=null;}
+ if(cameraStream){cameraStream.getTracks().forEach(track=>track.stop());cameraStream=null;}
+ if(window.ALTIVNativeScanner)await window.ALTIVNativeScanner.stop().catch(()=>{});
+ document.documentElement.classList.remove('scan-active');
+ document.body.classList.remove('scan-active');
+ const dlg=$('cameraDialog');if(dlg.open)dlg.close();
+}
+async function readLabel(){
+ if(!window.ALTIVNativeOCR)return notify('OCR de etiquetas disponível no APK Android.',true);
+ if($('cameraDialog').open)await closeCamera();
+ try{
+   const parsed=await window.ALTIVNativeOCR.readLabel();
+   ocrStreet=parsed.street||'';
+   ocrNeighborhood=parsed.neighborhood||'';
+   ocrDetectedRoutes=parsed.routes||[];
+   const last=state.scans.filter(s=>s.atId===getAT()?.id).slice(-1)[0];
+   focusedBR=last?.br||'';
+   navigate('corrections');
+   if(!ocrStreet)notify('Não foi possível localizar a rua. Confira a etiqueta e digite o endereço.',true);
+   else notify('Rua reconhecida: confira rua, bairro e rota antes de salvar a correção.');
+ }catch(err){notify('Falha na leitura do endereço: '+(err.message||'Tente outra foto.'),true);}
+}
 async function doDemo(){if(state.ats.length && !confirm('Adicionar duas ATs fictícias para demonstração aos seus dados atuais?'))return;
  const baseA='BR9900000000',baseB='BR8800000000';
  const r1=importAT(state,{name:'AT Demonstração DOE-04',route:'DOE-04',expectedCount:6,content:Array.from({length:6},(_,i)=>baseA+String(i+1).padStart(3,'0')).join('\n')});
@@ -465,6 +527,9 @@ async function handleAction(action,el){const at=getAT();switch(action){
  case 'deleteAT':{const id=el.dataset.id,obj=state.ats.find(a=>a.id===id);if(!obj||!confirm(`Excluir ${obj.name}, suas leituras e solicitações vinculadas?`))return;
  state.ats=state.ats.filter(a=>a.id!==id);state.scans=state.scans.filter(s=>s.atId!==id);state.corrections=state.corrections.filter(c=>c.atId!==id);state.assignmentRequests=state.assignmentRequests.filter(c=>c.atId!==id);state.selectedAtId=state.ats[0]?.id||null;selectedCorrections.clear();await save();render();notify('AT excluída deste dispositivo.');break;}
  case 'openCamera':await openCamera();break;
+ case 'torch':if(window.ALTIVNativeScanner){const on=await window.ALTIVNativeScanner.toggleTorch();notify(on?'Lanterna ligada.':'Lanterna desligada.');}else notify('Lanterna disponível no APK Android.',true);break;
+ case 'zoom':if(window.ALTIVNativeScanner){const z=await window.ALTIVNativeScanner.zoom();notify('Zoom ajustado para '+z.toFixed(1)+'x.');}else notify('Zoom disponível no APK Android.',true);break;
+ case 'ocrLabel':await readLabel();break;
  case 'scanBR':await ingestRaw(el.dataset.br);break;
  case 'correctBR':focusedBR=el.dataset.br;focusedExtraBR='';navigate('corrections');break;
  case 'requestBR':focusedExtraBR=el.dataset.br;focusedBR='';navigate('corrections');break;
@@ -477,8 +542,33 @@ document.addEventListener('click',async e=>{const nav=e.target.closest('[data-ta
 document.addEventListener('change',async e=>{
  if(e.target.id==='importFile'){
  const file=e.target.files?.[0];if(!file)return;
- if(!/\.(csv|txt)$/i.test(file.name))return notify('Use CSV ou TXT nesta versão. Para XLSX, exporte primeiro como CSV.',true);
- $('importText').value=await file.text();notify(`Arquivo ${file.name} carregado para importar.`);}
+ try {
+  if(file.size>10*1024*1024)throw Error('Arquivo muito grande: limite de 10 MB.');
+  if(/\.xlsx$/i.test(file.name)) {
+    if(!window.ExcelJS)throw Error('Leitor de Excel indisponível. Verifique a instalação do aplicativo.');
+    const workbook=new window.ExcelJS.Workbook();
+    await workbook.xlsx.load(await file.arrayBuffer());
+    const ws=workbook.worksheets[0];
+    if(!ws)throw Error('Planilha sem abas.');
+    const found=[];
+    ws.eachRow((row,i)=>{
+      if(i>20000)return;
+      row.eachCell({includeEmpty:false},cell=>{
+        const s=String(cell.text||'');
+        const match=s.match(/(?:^|[^A-Z0-9])BR[-_ ]?[A-Z0-9]{8,26}(?![A-Z0-9])/gi)||[];
+        found.push(...match);
+      });
+    });
+    if(!found.length)throw Error('Nenhuma BR encontrada na planilha.');
+    $('importText').value=found.join('\n');
+  } else if(/\.(csv|txt)$/i.test(file.name)) {
+    const content=await file.text();
+    const matches=content.match(/(?:^|[^A-Z0-9])BR[-_ ]?[A-Z0-9]{8,26}(?![A-Z0-9])/gi)||[];
+    if(!matches.length)throw Error('Arquivo sem BRs reconhecidas.');
+    $('importText').value=matches.join('\n');
+  } else throw Error('Use CSV, TXT ou XLSX.');
+  notify('BRs carregadas de '+file.name+'. Confira a rota e importe a AT.');
+ }catch(err){notify('Importação: '+err.message,true);}}
  if(e.target.classList.contains('cor-check')){if(e.target.checked)selectedCorrections.add(e.target.dataset.id);else selectedCorrections.delete(e.target.dataset.id);}
  if(e.target.classList.contains('cor-status')){const c=state.corrections.find(c=>c.id===e.target.dataset.id);if(c){c.status=e.target.value;await save();render();notify('Situação local atualizada. Não modifica o sistema da Shopee.');}}
  if(e.target.name==='atId' && e.target.closest('#correctionForm')){const at=state.ats.find(a=>a.id===e.target.value);const input=$('correctionForm').elements.namedItem('origin');if(input)input.value=at?.route||'';}
