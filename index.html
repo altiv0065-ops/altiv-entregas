@@ -159,7 +159,7 @@ function exportCSV(headers, records) {
   return '\ufeff' + [headers, ...records].map(row=>row.map(safeCSVCell).join(';')).join('\r\n') + '\r\n';
 }
 function correctionRows(corrections) {
-  return corrections.map(c=>[c.br,c.atName,c.originRoute,c.destRoute,c.street||'',c.neighborhood||'',c.reason||'',c.status||'Pendente',c.createdAt||'']);
+  return corrections.map(c=>[c.br,c.atName,c.originRoute,c.destRoute,c.street||'',c.neighborhood||'',c.address||'',c.city||'',c.zip||'',c.batchId||'',c.reason||'',c.status||'Pendente',c.createdAt||'']);
 }
 function addressRows(corrections) {
   const byPlace = new Map();
@@ -212,14 +212,58 @@ function upsertCorrection(state, {atId,br,destRoute,street='',neighborhood='',re
   if(!isExpected && !physicallyScanned) throw Error('BR não consta na AT e não foi bipada nela. Confira o pacote antes da correção.');
   if(!dest || dest===at.route) throw Error('Escolha uma rota de destino diferente da origem.');
   const existing=state.corrections.find(c=>c.atId===at.id && c.br===key);
+  const manifest=at.parcelsByBR?.[key]||{};
   const data={br:key,atId,atName:at.name,originRoute:at.route,destRoute:dest,
-    street:String(street).trim().slice(0,110),neighborhood:String(neighborhood).trim().slice(0,90),
+    address:String(manifest.address||existing?.address||'').trim().slice(0,240),
+    city:String(manifest.city||existing?.city||'').trim().slice(0,100),
+    zip:String(manifest.zip||existing?.zip||'').trim().slice(0,25),
+    street:String(street||manifest.street||'').trim().slice(0,110),neighborhood:String(neighborhood||manifest.neighborhood||'').trim().slice(0,90),
     reason:String(reason).trim().slice(0,200),status:'Pendente de aprovação',
     createdAt:existing?.createdAt || new Date().toISOString()};
   if(existing)Object.assign(existing,data);
   else state.corrections.push({id:'cor-'+Date.now()+'-'+Math.random().toString(36).slice(2,6),...data});
   return existing || state.corrections[state.corrections.length-1];
 }
+
+// Prevalidacao atomica: todos os pacotes devem pertencer a AT selecionada
+// e ter endereco do manifesto SPX. Nao registra bipagem nem altera a Shopee.
+function prepareBulkRouteCorrections(state,{atId,brs,destRoute}) {
+ const at=state.ats.find(a=>a.id===atId);
+ if(!at)throw Error('Selecione uma AT antes de corrigir em massa.');
+ const dest=normRoute(destRoute);
+ if(!dest||dest===at.route)throw Error('Escolha uma rota diferente da rota atual.');
+ if(!Array.isArray(brs)||brs.length===0)throw Error('Selecione ao menos uma BR.');
+ if(brs.length>2000)throw Error('Limite de 2000 BRs por lote.');
+ const unique=[...new Set(brs.map(normBR))];
+ if(unique.some(br=>!br))throw Error('BR invalida na selecao.');
+ const expected=new Set(at.brs);
+ const entries=unique.map(br=>{
+   if(!expected.has(br))throw Error('BR fora da AT selecionada: '+br+'. Use solicitar inclusao.');
+   const d=at.parcelsByBR?.[br];
+   if(!d?.address||!d?.street||!d?.neighborhood)throw Error('Endereco ausente para '+br+'. Reimporte a planilha SPX antes de corrigir.');
+   const existing=state.corrections.find(c=>c.atId===atId&&c.br===br);
+   if(existing?.status&&!/^Pendente/i.test(existing.status))throw Error('Correcao ja finalizada para '+br+'. Revise individualmente.');
+   return {br,address:d.address,street:d.street,neighborhood:d.neighborhood,city:d.city||'',zip:d.zip||'',alreadyRegistered:!!existing};
+ });
+ return {at, dest, entries};
+}
+function upsertBulkRouteCorrections(state,{atId,brs,destRoute}) {
+ const preview=prepareBulkRouteCorrections(state,{atId,brs,destRoute});
+ const batchId='lote-'+Date.now()+'-'+Math.random().toString(36).slice(2,7);
+ const records=[];
+ for(const item of preview.entries) {
+   const c=upsertCorrection(state,{atId,br:item.br,destRoute:preview.dest,
+      street:item.street,neighborhood:item.neighborhood,
+      reason:'Correcao em massa proposta pelo entregador; endereco importado do manifesto SPX.'});
+   c.batchId=batchId;
+   c.address=String(item.address).slice(0,240);
+   c.city=String(item.city).slice(0,100);
+   c.zip=String(item.zip).slice(0,25);
+   records.push(c);
+ }
+ return {batchId,count:records.length,records,destination:preview.dest,updated:preview.entries.filter(e=>e.alreadyRegistered).length};
+}
+
 function upsertAssignmentRequest(state, {atId,br,destRoute,street='',neighborhood=''}) {
   const at=state.ats.find(a=>a.id===atId);
   if(!at) throw Error('AT não encontrada.');
@@ -388,7 +432,7 @@ function navigate(page){tab=page;render();window.scrollTo({top:0,behavior:'insta
 function download(filename,bytes,mime){const blob=bytes instanceof Uint8Array?new Blob([bytes],{type:mime}):new Blob([bytes],{type:mime});const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(u),12000);notify(`Arquivo ${filename} gerado. Confira a pasta Downloads.`);}
 const exportCorrectionsCSV=(list=state.corrections,filename='altiv-solicitacoes-correcao.csv')=>{
  if(!list.length) return notify('Registre uma correção antes de exportar.',true);
- download(filename,exportCSV(['BR','AT','Rota atual','Rota sugerida','Rua sem numero','Bairro','Motivo','Situacao','Data'],correctionRows(list)),'text/csv;charset=utf-8');};
+ download(filename,exportCSV(['BR','AT','Rota atual','Rota sugerida','Rua sem numero','Bairro','Endereco completo','Cidade','CEP','Lote','Motivo','Situacao','Data'],correctionRows(list)),'text/csv;charset=utf-8');};
 function exportAddressCSV(){const rows=addressRows(state.corrections);if(!rows.length)return notify('Cadastre correções com rua e bairro para gerar ajustes futuros.',true);
  download('altiv-ajustes-de-ruas.csv',exportCSV(['Rua','Bairro','Rota atual','Destino proposto','Quantidade de BRs afetadas','BRs de referencia','Acao recomendada'],rows),'text/csv;charset=utf-8');}
 function exportAssignmentCSV() {
@@ -422,7 +466,7 @@ function exportAuditCSV(){const rows=[];for(const a of state.ats){const s=summar
  if(!rows.length)return notify('Não há BRs pendentes, extras ou divergentes para exportar.',true);
  download('altiv-auditoria-ats.csv',exportCSV(['AT','Rota','BR','Ocorrencia'],rows),'text/csv;charset=utf-8');}
 function exportCorrectionPDF(){if(!state.corrections.length)return notify('Registre uma correção para gerar o PDF.',true);
- const lines=[];for(const c of state.corrections){lines.push(`${c.br} | ${c.originRoute} > ${c.destRoute} | ${c.status}`);lines.push(`Rua: ${c.street||'nao informada'} | Bairro: ${c.neighborhood||'nao informado'}`);lines.push(`Motivo: ${c.reason}`);lines.push('');}
+ const lines=[];for(const c of state.corrections){lines.push(`${c.br} | ${c.originRoute} > ${c.destRoute} | ${c.status}`);lines.push(`Rua: ${c.street||'nao informada'} | Bairro: ${c.neighborhood||'nao informado'}`);lines.push(`Endereco: ${c.address||'nao disponivel'} | Cidade: ${c.city||''} | CEP: ${c.zip||''} | Lote: ${c.batchId||'individual'}`);lines.push(`Motivo: ${c.reason}`);lines.push('');}
  lines.push('Documento para conferencia e aprovacao do responsavel. Nenhuma alteracao na Shopee.');
  download('altiv-lote-correcao.pdf',pdfBytes('Solicitacoes de correcao de rotas',lines),'application/pdf');}
 function exportAuditPDF(){if(!state.ats.length)return notify('Importe pelo menos uma AT.',true);
