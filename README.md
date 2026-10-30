@@ -1,5 +1,24 @@
 # ALTIV Entregas — protótipo de conferência logística
 
+## ALTIV Entregas 2.1 — Scanner contínuo, OCR e planilhas
+
+Mudanças preparadas para teste Android:
+- **Bipagem contínua** via `BarcodeScanner.startScan()` com lanterna, zoom, permissão de câmera e encerramento seguro da sessão. QR e código de barras vinculados à mesma BR são contados uma só vez.
+- **Leitura local de etiqueta** usando câmera e ML Kit OCR Latin, com extração de rua, bairro e candidatos DOE, sem guardar imagem, texto bruto, nome ou telefone; rota precisa de confirmação do entregador.
+- **Importação de AT** por lista colada, TXT, CSV ou XLSX com ExcelJS embarcado offline. O identificador isolado da AT não permite consultar os pacotes na Shopee.
+- **Relatórios** de resumo por AT, BRs faltantes, extras, propostas DOE-04 → DOE-13, ruas recorrentes e solicitações de inclusão em CSV e PDF.
+- A contagem de BRs da AT **não inclui pacotes extras**. Quantidade declarada, quantidade única importada e pacotes efetivamente conferidos são separados.
+
+### Como testar no APK
+1. Na aba **ATs**, importe BRs exportadas da operação. Verifique se as duplicadas são sinalizadas.
+2. Na aba **Bipar**, mantenha a câmera aberta e passe vários pacotes: cada BR entra uma vez. QR opaco sem BR pede vínculo, não cria pacote fantasma.
+3. Em **Fotografar etiqueta para ler rua**, confirme rua, bairro e rota sugerida manualmente antes de gravar a correção.
+4. Em **Correções**, separe as BRs DOE-04 → DOE-13; gere CSV/PDF, e gere lote separado para BR física não presente na lista.
+5. Verifique os resumos e PDFs com dados fictícios antes de utilizar dados reais.
+
+**Limitações:** scanner contínuo e OCR nativo exigem teste em Android físico. Não existe integração oficial Shopee no app; somente o responsável autorizado pode mudar uma AT ou a roteirização futura. As fotos de etiquetas podem conter dados pessoais e devem ser usadas com cuidado.
+
+
 ## Versão 2.0 (branch `feat/altiv-entregas-v2-fluxo-leitor`)
 
 Fluxo principal: **importar AT → bipar pacote → conferir → exportar correções**. As quatro áreas do menu são Início, ATs, Bipar e Correções. A entrada de rua e bairro é manual ou baseada em regras previamente cadastradas: **OCR automático do endereço ainda não está incluído**, e um QR não contém necessariamente rua ou bairro.
