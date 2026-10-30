@@ -560,43 +560,86 @@ async function handleAction(action,el){const at=getAT();switch(action){
  case 'selectedCSV':{const list=state.corrections.filter(c=>selectedCorrections.has(c.id));if(!list.length)return notify('Selecione pelo menos uma correção.',true);exportCorrectionsCSV(list,'altiv-lote-selecionado.csv');break;}
  }}
 document.addEventListener('click',async e=>{const nav=e.target.closest('[data-tab]');if(nav){navigate(nav.dataset.tab);return;}const action=e.target.closest('[data-action]');if(action){try{await handleAction(action.dataset.action,action);}catch(err){notify(err.message||'Erro inesperado',true);}}});
+
+function selectSPXManifest(index) {
+ if(!pendingSPX) return;
+ const manifest=pendingSPX.manifests[index];
+ if(!manifest)throw Error('AT nao localizada na planilha.');
+ pendingSPX.selected=index;
+ const form=$('importForm');
+ form.elements.namedItem('name').value=manifest.atId;
+ form.elements.namedItem('expected').value=manifest.count;
+ $('importText').value=manifest.parcels.map(p=>p.br).join('\n');
+ const picker=pendingSPX.manifests.length>1?
+   '<label class="field">Escolha a AT do arquivo<select id="spxAtPicker">'+pendingSPX.manifests.map((m,i)=>'<option value="'+i+'"'+(i===index?' selected':'')+'>'+h(m.atId)+' — '+m.count+' BRs</option>').join('')+'</select></label>':'';
+ const example=manifest.parcels.slice(0,8).map(p=>'<div class="list-row"><strong>'+h(p.br)+'</strong><span class="small">'+h(p.street)+' · '+h(p.neighborhood)+'</span></div>').join('');
+ const node=$('spxPreview');
+ node.classList.remove('hidden');
+ node.innerHTML='<strong>AT identificada: '+h(manifest.atId)+'</strong><p class="small">'+manifest.count+' BRs unicas encontradas. Ruas e bairros vinculados no dispositivo.</p>'+picker+
+    '<details><summary>Visualizar exemplos de BRs e ruas</summary>'+example+'</details>'+
+    (pendingSPX.duplicates.length?'<p class="small">BRs repetidas no arquivo: '+pendingSPX.duplicates.length+' (ignoradas).</p>':'')+
+    (pendingSPX.warnings.length?'<p class="small">Avisos: '+pendingSPX.warnings.length+' linhas a revisar.</p>':'')+
+    '<p class="tiny">A DOE correta nao consta na planilha. Confirme a rota antes de importar.</p>';
+}
+async function readExportedATFile(file) {
+ if(file.size>10*1024*1024)throw Error('Arquivo muito grande: maximo 10 MB.');
+ pendingSPX=null;
+ let rows=null, plain='';
+ if(/\.(?:xlsx|xls)$/i.test(file.name)) {
+   const buffer=await file.arrayBuffer();
+   const bytes=new Uint8Array(buffer.slice(0,4));
+   if(bytes[0]!==80||bytes[1]!==75)throw Error('Arquivo XLS antigo nao suportado. Exporte como XLSX. Arquivos XLSX.XLS da Shopee sao aceitos.');
+   if(!window.ExcelJS)throw Error('Leitor Excel nao carregado neste dispositivo.');
+   const workbook=new window.ExcelJS.Workbook();
+   await workbook.xlsx.load(buffer);
+   const ws=workbook.worksheets[0];
+   if(!ws)throw Error('Arquivo Excel sem planilha.');
+   rows=[];
+   ws.eachRow({includeEmpty:false},(row,num)=>{
+     if(num>20001)return;
+     const cols=[];
+     for(let i=1;i<=Math.min(24,Math.max(10,ws.columnCount));i++){
+       const cell=row.getCell(i),value=cell.value;
+       cols.push(value && typeof value==='object'?String(cell.text||''):value);
+     }
+     rows.push(cols);
+   });
+ } else if(/\.(?:csv|txt)$/i.test(file.name)) {
+   plain=await file.text();
+   rows=window.ALTIVSPX.parseDelimited(plain);
+ } else throw Error('Formato nao suportado. Use XLSX, XLSX.XLS, CSV ou TXT.');
+ const header=rows?.[0]||[];
+ const spxHeader=header.some(x=>String(x).trim().toUpperCase()==='AT ID') && header.some(x=>String(x).trim().toUpperCase()==='SPX TN');
+ if(spxHeader) {
+   if(!window.ALTIVSPX)throw Error('Interpretador SPX nao carregado.');
+   pendingSPX=window.ALTIVSPX.parseSPXRows(rows);
+   selectSPXManifest(0);
+   notify('Planilha SPX reconhecida! AT, BRs e ruas carregadas. Confirme a DOE e importe.');
+ } else {
+   const extracted=(plain||rows.map(row=>row.join(' ')).join('\n')).match(/(?:^|[^A-Z0-9])BR[-_ ]?[A-Z0-9]{8,26}(?![A-Z0-9])/gi)||[];
+   if(!extracted.length)throw Error('Arquivo sem BRs ou colunas SPX reconheciveis.');
+   $('importText').value=extracted.join('\n');
+   $('spxPreview').classList.add('hidden');
+   notify('Lista de BRs carregada. Informe o codigo da AT e a rota.');
+ }
+}
+
 document.addEventListener('change',async e=>{
+ if(e.target.id==='spxAtPicker'){selectSPXManifest(Number(e.target.value));return;}
  if(e.target.id==='importFile'){
  const file=e.target.files?.[0];if(!file)return;
- try {
-  if(file.size>10*1024*1024)throw Error('Arquivo muito grande: limite de 10 MB.');
-  if(/\.xlsx$/i.test(file.name)) {
-    if(!window.ExcelJS)throw Error('Leitor de Excel indisponível. Verifique a instalação do aplicativo.');
-    const workbook=new window.ExcelJS.Workbook();
-    await workbook.xlsx.load(await file.arrayBuffer());
-    const ws=workbook.worksheets[0];
-    if(!ws)throw Error('Planilha sem abas.');
-    const found=[];
-    ws.eachRow((row,i)=>{
-      if(i>20000)return;
-      row.eachCell({includeEmpty:false},cell=>{
-        const s=String(cell.text||'');
-        const match=s.match(/(?:^|[^A-Z0-9])BR[-_ ]?[A-Z0-9]{8,26}(?![A-Z0-9])/gi)||[];
-        found.push(...match);
-      });
-    });
-    if(!found.length)throw Error('Nenhuma BR encontrada na planilha.');
-    $('importText').value=found.join('\n');
-  } else if(/\.(csv|txt)$/i.test(file.name)) {
-    const content=await file.text();
-    const matches=content.match(/(?:^|[^A-Z0-9])BR[-_ ]?[A-Z0-9]{8,26}(?![A-Z0-9])/gi)||[];
-    if(!matches.length)throw Error('Arquivo sem BRs reconhecidas.');
-    $('importText').value=matches.join('\n');
-  } else throw Error('Use CSV, TXT ou XLSX.');
-  notify('BRs carregadas de '+file.name+'. Confira a rota e importe a AT.');
- }catch(err){notify('Importação: '+err.message,true);}}
+ try{await readExportedATFile(file)}catch(err){pendingSPX=null;notify('Importacao: '+err.message,true);}
+ }
  if(e.target.classList.contains('cor-check')){if(e.target.checked)selectedCorrections.add(e.target.dataset.id);else selectedCorrections.delete(e.target.dataset.id);}
  if(e.target.classList.contains('cor-status')){const c=state.corrections.find(c=>c.id===e.target.dataset.id);if(c){c.status=e.target.value;await save();render();notify('Situação local atualizada. Não modifica o sistema da Shopee.');}}
  if(e.target.name==='atId' && e.target.closest('#correctionForm')){const at=state.ats.find(a=>a.id===e.target.value);const input=$('correctionForm').elements.namedItem('origin');if(input)input.value=at?.route||'';}
 });
 document.addEventListener('submit',async e=>{e.preventDefault();const form=e.target;if(!form.id)return;const v=new FormData(form);try{
  if(form.id==='importForm'){
-  const result=importAT(state,{name:v.get('name'),route:v.get('route'),content:v.get('content'),expectedCount:v.get('expected')});await save();render();
+  const manifest=pendingSPX?.manifests[pendingSPX.selected];
+  const parcelsByBR=manifest?Object.fromEntries(manifest.parcels.map(p=>[p.br,p])):null;
+  const result=importAT(state,{name:manifest?.atId||v.get('name'),route:v.get('route'),content:manifest?manifest.parcels.map(p=>p.br).join('\n'):v.get('content'),expectedCount:manifest?.count||v.get('expected'),parcelsByBR,sourceFormat:manifest?'SPX':'manual'});
+  pendingSPX=null;await save();render();
   const msgs=[`${result.at.brs.length} BRs únicas importadas.`];
   if(result.duplicates.length)msgs.push(`${result.duplicates.length} BR(s) repetidas na lista foram desconsideradas.`);
   if(result.across.length)msgs.push(`${result.across.length} BR(s) também aparecem em outras ATs: revisar conflito.`);
