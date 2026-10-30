@@ -6,6 +6,7 @@ await mkdir(target,{recursive:true});
 for (const file of ['index.html','service-worker.js','manifest.webmanifest']) await cp(new URL('../'+file,import.meta.url),new URL(file,target));
 await cp(new URL('../assets/',import.meta.url),new URL('assets/',target),{recursive:true});
 await build({entryPoints:[new URL('../src/native-scanner.js',import.meta.url).pathname],bundle:true,format:'iife',platform:'browser',target:'es2022',outfile:new URL('native-scanner.js',target).pathname,logLevel:'warning'});
+await build({entryPoints:[new URL('../src/spx-manifest.mjs',import.meta.url).pathname],bundle:true,format:'iife',platform:'browser',target:'es2022',globalName:'ALTIVSPX',outfile:new URL('spx-manifest.js',target).pathname,logLevel:'warning'});
 await mkdir(new URL('vendor/',target),{recursive:true});
 await cp(new URL('../node_modules/exceljs/dist/exceljs.min.js',import.meta.url),new URL('vendor/exceljs.min.js',target));
 console.log('ALTIV Entregas web assets -> www/');
